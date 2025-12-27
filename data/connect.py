@@ -7,9 +7,15 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 DATABASE_URL = "postgresql+asyncpg://postgres:Ayaulym^2011@localhost:5433/stridex"
 engine = create_async_engine(DATABASE_URL, echo=True)
-
 session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
+
+async def get_db():
+    async with session() as sen:
+        try:
+            yield sen
+        finally:
+            await sen.close()
 
 class GenderEnum(enum.Enum):
     MALE = 'male'
@@ -23,20 +29,37 @@ class SideEnum(enum.Enum):
     LEFT = 'left'
     RIGHT = 'right'
 
+class UserRoleEnum(enum.Enum):
+    PATIENT = 'patient'
+    DOCTOR = 'doctor'
+
 class User(Base):
     __tablename__ = "user"
-    id = Column(String(8), CheckConstraint('length(code) = 8'), index=True)
+    id = Column(String(8), CheckConstraint('length(id) = 8'), index=True)
     name = Column(String, nullable=False, comment='Введите реальное ФИО')
-    age = Column(Integer, CheckConstraint('age > 0 AND age < 120'))
-    gender = Column(SQLEnum(GenderEnum))
-    weight = Column(Float)
-    height = Column(Float)
-    shoe_size = Column(Float, comment="Размер обуви (RU)")
+    role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.PATIENT)
+    date_of_birth = Column(DateTime, nullable=False)
+    #city enum
+    city = Column(
+        String(100),
+        nullable=True,
+        comment="Город проживания пользователя"
+    )
+
+    gender = Column(SQLEnum(GenderEnum), nullable=False)
+    weight = Column(Float, nullable=False)
+    height = Column(Float, nullable=False)
+
+    shoe_size = Column(Float,nullable=False, comment="Размер обуви (RU)")
     has_flat_feet = Column(Boolean, default=False, comment="Наличие плоскостопия")
+    #3d model
+    pain_place = Column(SQLEnum(), )
     injury_history = Column(String(500), comment="Описание травм и стороны поражения")
-    dominant_leg = Column(SQLEnum(SideEnum), comment="Ведущая нога")
-    placed_leg = Column(SQLEnum(SideEnum), comment="Нога на которой расположен модуль")
-    created_at = Column(DateTime, default=lambda: datetime.now())
+
+    dominant_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Ведущая нога")
+    placed_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Нога на которой расположен модуль")
+
+    created_at = Column(DateTime,nullable=False, default=lambda: datetime.now())
     email = Column(
         String(255),
         unique=True,
@@ -48,12 +71,49 @@ class User(Base):
         nullable=False,
     )
 
-
     __table_args__ = (
-        CheckConstraint('length(password) <= 12', name='password_max_length'),
         CheckConstraint("email LIKE '%@%'", name="check_email_format"),
         CheckConstraint('height > 80 AND height < 210', name='check_height_range'),
-        CheckConstraint('weight > 20 AND weight < 200', name='check_weight_range')
+        CheckConstraint('weight > 20 AND weight < 200', name='check_weight_range'),
+    )
+
+class Doctor(Base):
+    __tablename__ = "doctor"
+    id = Column(String(8), CheckConstraint('length(id) = 8'), index=True)
+    name = Column(String, nullable=False, comment='Введите реальное ФИО')
+    role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.PATIENT)
+    date_of_birth = Column(DateTime, nullable=False)
+    # city enum
+    city = Column(
+        String(100),
+        nullable=True,
+        comment="Город проживания пользователя"
+    )
+    workplace = Column(
+        String(100),
+        nullable=True,
+        comment="Название организации или тип офиса"
+    )
+    specialization = Column(String(100), comment="Специализация")
+    license_id = Column(Integer())
+    gender = Column(SQLEnum(GenderEnum), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now())
+    email = Column(
+        String(255),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    password = Column(
+        String(12),
+        nullable=False,
+    )
+    __table_args__ = (
+        CheckConstraint("email LIKE '%@%'", name="check_email_format"),
+        CheckConstraint(
+            'length(license_id) = 8',
+            name='check_license_id_length'
+        ),
     )
 
 class RawData(Base):
@@ -83,14 +143,6 @@ class StepMetrics(Base):
     session_id = Column(Integer, index=True, nullable=False)
     timestamp = Column(DateTime, default=lambda: datetime.now())
 
-class Session(Base):
-    __tablename__ = "session"
-
-class DailyData(Base):
-    __tablename__ = "daily_data"
-
-class MonthData(Base):
-    __tablename__ = "month_data"
 
 async def hypertable(engine, base):
     async with engine.begin() as conn:
