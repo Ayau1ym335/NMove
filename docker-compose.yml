@@ -1,18 +1,17 @@
-version: '3.8'
+
 services:
   db:
-    # Мы берем не просто postgres, а уже готовую сборку с TimescaleDB
     image: timescale/timescaledb:latest-pg15
     container_name: stridex_db
     restart: always
     environment:
-      - POSTGRES_USER=stridex_admin
-      - POSTGRES_PASSWORD=secure_password
-      - POSTGRES_DB=stridex_main
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Ayaulym^2011
+      - POSTGRES_DB=stridex
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - stridex_db:/var/lib/postgresql/data
 
 volumes:
-  postgres_data:
+  stridex_db:
