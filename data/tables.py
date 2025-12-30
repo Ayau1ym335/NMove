@@ -6,9 +6,11 @@ from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
 import enum
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+import os
+from dotenv import load_dotenv
 
-#Database setup
-DATABASE_URL = "postgresql+asyncpg://postgres:Ayaulym^2011@localhost:5433/stridex"
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_async_engine(
     DATABASE_URL,
     echo=True,
