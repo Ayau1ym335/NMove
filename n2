@@ -1,0 +1,48 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from database import init_db
+from routers import auth
+
+# Создать FastAPI приложение
+app = FastAPI(
+    title="Gait Analysis API",
+    description="API для анализа походки с помощью IMU сенсоров",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# CORS middleware (для Flutter web/mobile)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В production укажи конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Инициализация БД при старте
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    print("✅ Database initialized")
+    print("🚀 Application started!")
+    print("📖 Docs: http://localhost:8000/docs")
+
+# Подключить auth router
+app.include_router(auth.router)
+
+# Root endpoint
+@app.get("/")
+async def root():
+    return {
+        "message": "Gait Analysis API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+"""

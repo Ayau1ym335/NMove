@@ -49,10 +49,6 @@ class ActivityType(enum.Enum):
     TURNING = 'turning'
     NONE = 'none'
 
-class UserRoleEnum(enum.Enum):
-    PATIENT = 'patient'
-    DOCTOR = 'doctor'
-
 class ExerciseD(enum.Enum):
     EASY = 'easy'
     MEDIUM = 'medium'
@@ -85,8 +81,9 @@ class InjuryType(enum.Enum):
 class Users(Base):
     __tablename__ = "user"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_code = Column(String(8), CheckConstraint('length(user_code) = 8'), index=True, unique=True)
-    devices = relationship("Devices", back_populates="user", cascade="all, delete-orphan")
+    public_code = Column(String(8), unique=True)
+    devices = relationship("Devices",nullable=True, back_populates="user", cascade="all, delete-orphan")
+    created_at = Column(DateTime,nullable=False, default=lambda: datetime.now())
     name = Column(String, nullable=False, comment='Введите реальное ФИО')
     #city enum
     city = Column(
@@ -94,8 +91,6 @@ class Users(Base):
         nullable=True,
         comment="Город проживания пользователя"
     )
-
-    created_at = Column(DateTime,nullable=False, default=lambda: datetime.now())
     email = Column(
         String(255),
         unique=True,
@@ -103,7 +98,7 @@ class Users(Base):
         index=True,
     )
     password = Column(
-        String(12),
+        String(255),
         nullable=False,
     )
     doctors = relationship(
@@ -111,10 +106,11 @@ class Users(Base):
         secondary="doctor_patients",
         back_populates="users"
     )
+
     profile = relationship("Profiles", back_populates="user", uselist=False, cascade="all, delete-orphan")
     walking_sessions = relationship("WalkingSessions", back_populates="user", cascade="all, delete-orphan")
     progress_records = relationship("UserProgress", back_populates="user", cascade="all, delete-orphan")
-    medical_reports = relationship("MedicalReport", back_populates="patient", cascade="all, delete-orphan")
+    medical_reports = relationship("MedicalReport", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint("email LIKE '%@%'", name="check_email_format"),
@@ -122,9 +118,8 @@ class Users(Base):
 
 class Profiles(Base):
     __tablename__ = 'profiles'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("user.id"), unique=True)
-
+    id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    public_code = Column(String(8),unique=True)
     date_of_birth = Column(DateTime, nullable=False)
     gender = Column(SQLEnum(GenderEnum), nullable=False)
     weight = Column(Float, nullable=False)
@@ -133,7 +128,7 @@ class Profiles(Base):
     have_injury = Column(Boolean, nullable=False, default=False)
     shoe_size = Column(Float, nullable=False, comment="Размер обуви (RU)")
     dominant_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Ведущая нога")
-    placed_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Нога на которой расположен модуль")
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now())
 
     user = relationship("Users", back_populates="profile")
 
@@ -152,33 +147,14 @@ class Injury(Base):
     diagnosis_date = Column(DateTime, nullable=False)
     pain_level = Column(Integer, CheckConstraint(' pain_level >= 0 AND pain_level <= 10'), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    placed_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Нога на которой расположен модуль")
 
-class Baseline(Base):
-    __tablename__ = "baselines"
-
-    id = Column(Integer, primary_key=True)
-    profile_id = Column(Integer, ForeignKey("profiles.id"))
-    start_time = Column(DateTime, nullable=False, index=True)
-    end_time = Column(DateTime)
-
-    total_steps = Column(Integer)
-    avg_cadence = Column(Float)
-    avg_gvi = Column(Float)
-    avg_knee_angle = Column(Float)
-    avg_hip_angle = Column(Float)
-    avg_stance_time = Column(Float, comment="Среднее время опоры")
-    avg_swing_time = Column(Float, comment="Среднее время маха")
-    stance_swing_ratio = Column(Float)
-    step_time_variability = Column(Float, comment="CV% времени шага")
-    step_length_variability = Column(Float, comment="CV% длины шага")
-    stance_time_variability = Column(Float, comment="CV% времени опоры")
 
 class Doctors(Base):
     __tablename__ = "doctor"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_code = Column(String(8), CheckConstraint('length(user_code) = 8'), index=True, unique=True)
+    public_code = Column(String(8), unique=True, index=True)
     name = Column(String, nullable=False, comment='Введите реальное ФИО')
-    role = Column(SQLEnum(UserRoleEnum), nullable=False, default=UserRoleEnum.PATIENT)
     date_of_birth = Column(DateTime, nullable=False)
     # city enum
     city = Column(
@@ -202,7 +178,7 @@ class Doctors(Base):
         index=True,
     )
     password = Column(
-        String(12),
+        String(255),
         nullable=False,
     )
 
@@ -225,7 +201,7 @@ class DoctorPatient(Base):
     __tablename__ = "doctor_patients"
 
     id = Column(Integer, primary_key=True)
-    doctor_id = Column(Integer, ForeignKey("doctors.id"))  # Врач тоже User, но с флагом is_doctor
+    doctor_id = Column(Integer, ForeignKey("doctors.id")) 
     patient_id = Column(Integer, ForeignKey("user.id"))
 
     access_granted_at = Column(DateTime, default=lambda: datetime.now())
@@ -273,6 +249,9 @@ class WalkingSessions(Base):
     is_significant = Column(Boolean)
     activity_type = Column(SQLEnum(ActivityType), nullable=False, default=ActivityType.NONE )
     auto_detected = Column(Boolean, default=True)
+    is_baseline = Column(Boolean, default=False, nullable=False, comment="Эталонная походка или обычная")
+    is_processed = Column(Boolean, default=False, nullable=False, comment="Обработана ли сессия")
+    notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
 
     #Basic metrics
     step_count = Column(Integer)
