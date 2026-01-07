@@ -1,9 +1,15 @@
 import numpy as np
-from scipy.signal import butter, filtfilt, find_peaks
-from typing import Tuple, Dict
+from scipy.signal import find_peaks
 from dataclasses import dataclass
 from enum import Enum
-from app.data.tables import ActivityType
+
+class ActivityType(Enum):
+    STANDING = "standing"
+    WALKING = "walking"
+    STAIRS = "stairs"
+    RUNNING = "running"
+    JUMPING = "jumping"
+    UNKNOWN = "unknown"
 
 @dataclass
 class FilterConfig:
@@ -25,7 +31,7 @@ class ActivityDetector:
         self.window_size = window_size
         self.window_samples = int(window_size * fs)
 
-    def detect_activity(self, acc_data: np.ndarray) -> Tuple[ActivityType, Dict]:
+    def detect_activity(self, acc_data: np.ndarray):
         if acc_data.ndim == 2:
             acc_z = acc_data[:, 2]
         else:
@@ -35,19 +41,14 @@ class ActivityDetector:
         peak_impact = self._calculate_peak_impact(acc_z)
         signal_roughness = self._calculate_roughness(acc_z)
 
-        metrics = {
-            'std': std,
-            'dominant_freq': dominant_freq,
-            'peak_impact': peak_impact,
-            'signal_roughness': signal_roughness
-        }
         activity = self._classify_activity(
             std, dominant_freq, peak_impact, signal_roughness
         )
 
         return activity
 
-    def _calculate_std(self, signal: np.ndarray) -> float:
+    @staticmethod
+    def _calculate_std(signal: np.ndarray) -> float:
         return float(np.std(signal))
 
     def _calculate_dominant_frequency(self, signal: np.ndarray) -> float:
@@ -68,12 +69,14 @@ class ActivityDetector:
             frequency = 0.0
         return frequency
 
-    def _calculate_peak_impact(self, signal: np.ndarray) -> float:
+    @staticmethod
+    def _calculate_peak_impact(signal: np.ndarray) -> float:
         signal_detrended = signal - np.mean(signal)
         max_impact = np.max(np.abs(signal_detrended))
         return max_impact
 
-    def _calculate_roughness(self, signal: np.ndarray) -> float:
+    @staticmethod
+    def _calculate_roughness(signal: np.ndarray) -> float:
         raw_std = np.std(signal) + 1e-6
         second_derivative = np.diff(signal, n=2)
         absolute_roughness = np.std(second_derivative)
@@ -81,8 +84,8 @@ class ActivityDetector:
 
         return float(roughness)
 
+    @staticmethod
     def _classify_activity(
-        self,
         std: float,
         dominant_freq: float,
         peak_impact: float,
