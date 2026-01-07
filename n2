@@ -1,85 +1,14 @@
+weeks tasks:
+1. exercises
+2. pre filtration
+3. detect activity
+4. filtration
+5. madgwick
+6. step detect
+7. cadence
+8. sql table debug
+9. endpoints
+if time:
+other measurements
 
-
-
-# ============================================
-# АЛЬТЕРНАТИВА: Chunked Upload (для больших данных)
-# ============================================
-
-@router.post(
-    "/{session_id}/upload/chunk",
-    status_code=status.HTTP_200_OK,
-    summary="Загрузить chunk данных (для больших объемов)"
-)
-async def upload_chunk(
-    session_id: int,
-    data: RawDataUpload,
-    chunk_number: int = 1,
-    total_chunks: int = 1,
-    current_user: Users = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Альтернативный endpoint для загрузки данных по частям.
-    
-    Используется когда данных много (>10000 точек).
-    ESP32 отправляет данные батчами по 1000-2000 точек.
-    
-    Query параметры:
-        - chunk_number: Номер текущего chunk (1, 2, 3...)
-        - total_chunks: Общее количество chunks
-    
-    Example:
-        POST /api/sessions/123/upload/chunk?chunk_number=1&total_chunks=5
-        POST /api/sessions/123/upload/chunk?chunk_number=2&total_chunks=5
-        ...
-        POST /api/sessions/123/upload/chunk?chunk_number=5&total_chunks=5
-    """
-    
-    # Похожая логика, но:
-    # 1. Не устанавливаем end_time пока chunk_number != total_chunks
-    # 2. Не запускаем обработку пока не все chunks загружены
-    # 3. Храним промежуточное состояние в Redis или просто проверяем count
-    
-    # ... (реализация по запросу)
-    pass
-
-
-# schemas.py - Обновить RawDataUpload схемы
-
-
-
-
-# ============================================
-# CHUNKED UPLOAD SCHEMAS (опционально)
-# ============================================
-
-class ChunkedUploadRequest(BaseModel):
-    """
-    Для загрузки больших данных по частям
-    """
-    session_id: int
-    chunk_number: int = Field(..., ge=1, description="Номер текущего chunk")
-    total_chunks: int = Field(..., ge=1, description="Общее количество chunks")
-    samples: List[RawDataPoint] = Field(..., min_length=1, max_length=2000)
-    
-    @field_validator('chunk_number')
-    @classmethod
-    def validate_chunk_number(cls, v: int, info) -> int:
-        if 'total_chunks' in info.data and v > info.data['total_chunks']:
-            raise ValueError(
-                f"chunk_number ({v}) cannot exceed total_chunks ({info.data['total_chunks']})"
-            )
-        return v
-    
-
-class ChunkedUploadResponse(BaseModel):
-    """Ответ при chunked upload"""
-    status: str
-    session_id: int
-    chunk_number: int
-    total_chunks: int
-    chunks_received: int = Field(description="Сколько chunks уже получено")
-    processing_started: bool = Field(
-        default=False,
-        description="True если это был последний chunk и обработка началась"
-    )
+https://github.com/morgil/madgwick_py

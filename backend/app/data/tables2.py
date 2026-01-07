@@ -1,5 +1,4 @@
-#imports
-from sqlalchemy import (Column, Integer,String,CheckConstraint,
+from sqlalchemy import (Column, Integer, String, CheckConstraint,
                         DateTime, Float, Boolean, ForeignKey, JSON, Text, Enum as SQLEnum, text,
                         PrimaryKeyConstraint, Index)
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -22,14 +21,20 @@ engine = create_async_engine(
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
+
 async def get_db():
     async with AsyncSessionLocal() as sen:
-        yield sen
-       
-#Enums
+        try:
+            yield sen
+        finally:
+            await sen.close()
+
+
+# Enums
 class GenderEnum(enum.Enum):
     MALE = 'male'
     FEMALE = 'female'
+
 
 class SessionStatus(enum.Enum):
     RECORDING = 'recording'
@@ -37,9 +42,11 @@ class SessionStatus(enum.Enum):
     PROCESSING = 'processing'
     COMPLETED = 'completed'
 
+
 class SideEnum(enum.Enum):
     LEFT = 'left'
     RIGHT = 'right'
+
 
 class ActivityType(enum.Enum):
     STANDING = "standing"
@@ -49,10 +56,12 @@ class ActivityType(enum.Enum):
     JUMPING = "jumping"
     UNKNOWN = "unknown"
 
+
 class ExerciseD(enum.Enum):
     EASY = 'easy'
     MEDIUM = 'medium'
     HARD = 'hard'
+
 
 class BodyPart(enum.Enum):
     KNEE = 'knee'
@@ -61,6 +70,7 @@ class BodyPart(enum.Enum):
     HIP = 'hip'
     SHIN = 'shin'
     THIGH = 'thigh'
+
 
 class InjuryType(enum.Enum):
     ACL_TEAR = 'acl_tear'
@@ -76,27 +86,27 @@ class InjuryType(enum.Enum):
     POST_OP = 'post_operative'
     OTHER = 'other'
 
-#Tables
 
+# Tables
 class DoctorPatient(Base):
     __tablename__ = "doctor_patients"
 
     id = Column(Integer, primary_key=True)
-    doctor_id = Column(Integer, ForeignKey("doctor.id"))
-    patient_id = Column(Integer, ForeignKey("user.id"))
+    doctor_id = Column(Integer, ForeignKey("doctors.id"))  # Fixed
+    patient_id = Column(Integer, ForeignKey("user.id"))  # Fixed
 
     access_granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     access_revoked_at = Column(DateTime, nullable=True)
-    notes = Column(String, nullable=True)  # Заметки врача о пациенте
+    notes = Column(String, nullable=True)
+
 
 class Users(Base):
     __tablename__ = "user"
     id = Column(Integer, primary_key=True, autoincrement=True)
     public_code = Column(String(8), unique=True)
     devices = relationship("Devices", back_populates="user", cascade="all, delete-orphan")
-    created_at = Column(DateTime,nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     name = Column(String, nullable=False, comment='Введите реальное ФИО')
-    #city enum
     city = Column(
         String(100),
         nullable=True,
@@ -115,23 +125,24 @@ class Users(Base):
     doctors = relationship(
         "Doctors",
         secondary="doctor_patients",
-        back_populates="users"
+        back_populates="patients"  # Fixed - renamed from 'users'
     )
 
     profile = relationship("Profiles", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    injury = relationship("Injury", back_populates="user", uselist=False, cascade="all, delete-orphan")  # Added
     walking_sessions = relationship("WalkingSessions", back_populates="user", cascade="all, delete-orphan")
     progress_records = relationship("UserProgress", back_populates="user", cascade="all, delete-orphan")
     medical_reports = relationship("MedicalReport", back_populates="user", cascade="all, delete-orphan")
-    injuries = relationship("Injury",back_populates="user",cascade="all, delete-orphan",uselist=False)
-
 
     __table_args__ = (
         CheckConstraint("email LIKE '%@%'", name="check_email_format"),
     )
 
+
 class Profiles(Base):
     __tablename__ = 'profiles'
     id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    public_code = Column(String(8), unique=True)
     date_of_birth = Column(DateTime, nullable=False)
     gender = Column(SQLEnum(GenderEnum), nullable=False)
     weight = Column(Float, nullable=False)
@@ -149,6 +160,7 @@ class Profiles(Base):
         CheckConstraint('weight > 20 AND weight < 200', name='check_weight_range'),
     )
 
+
 class Injury(Base):
     __tablename__ = 'injuries'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -157,18 +169,20 @@ class Injury(Base):
     side = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT)
     injury_type = Column(ARRAY(SQLEnum(InjuryType)), nullable=False)
     diagnosis_date = Column(DateTime, nullable=False)
-    pain_level = Column(Integer, CheckConstraint(' pain_level >= 0 AND pain_level <= 10'), nullable=False)
+    pain_level = Column(Integer, CheckConstraint('pain_level >= 0 AND pain_level <= 10'), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     placed_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Нога на которой расположен модуль")
 
+    # Added relationship
+    user = relationship("Users", back_populates="injury")
+
 
 class Doctors(Base):
-    __tablename__ = "doctor"
+    __tablename__ = "doctors"  # Fixed - changed from "doctor"
     id = Column(Integer, primary_key=True, autoincrement=True)
     public_code = Column(String(8), unique=True, index=True)
     name = Column(String, nullable=False, comment='Введите реальное ФИО')
     date_of_birth = Column(DateTime, nullable=False)
-    # city enum
     city = Column(
         String(100),
         nullable=True,
@@ -182,7 +196,7 @@ class Doctors(Base):
     specialization = Column(String(100), comment="Специализация")
     license_id = Column(String(12))
     gender = Column(SQLEnum(GenderEnum), nullable=False)
-    created_at = Column(DateTime, nullable=False, default= lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     email = Column(
         String(255),
         unique=True,
@@ -195,7 +209,7 @@ class Doctors(Base):
     )
 
     medical_reports = relationship("MedicalReport", back_populates="doctor")
-    user = relationship(
+    patients = relationship(  # Fixed - renamed from 'user' to 'patients'
         "Users",
         secondary="doctor_patients",
         back_populates="doctors"
@@ -209,6 +223,7 @@ class Doctors(Base):
         ),
     )
 
+
 class Devices(Base):
     __tablename__ = "devices"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -219,29 +234,6 @@ class Devices(Base):
 
     user = relationship("Users", back_populates="devices")
 
-class RawData(Base):
-    __tablename__ = "raw_data"
-    id = Column(Integer)
-    __table_args__ = (
-        PrimaryKeyConstraint('id', 'timestamp'),
-        {
-            "info": {
-                "is_hypertable": True,
-                "time_column": "timestamp"
-            }
-        }
-    )
-    session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    placement = Column(Integer, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
-    a_x = Column(Float)
-    a_y = Column(Float)
-    a_z = Column(Float)
-    g_x = Column(Float)
-    g_y = Column(Float)
-    g_z = Column(Float)
-
-    session = relationship("WalkingSessions", back_populates="raw_data")
 
 class WalkingSessions(Base):
     __tablename__ = "walking_sessions"
@@ -252,13 +244,13 @@ class WalkingSessions(Base):
     duration = Column(Float, comment="Длительность в секундах")
 
     status = Column(SQLEnum(SessionStatus), nullable=False, default=SessionStatus.STOPPED)
-    activity_type = Column(SQLEnum(ActivityType), nullable=False, default=ActivityType.UNKNOWN )
+    activity_type = Column(SQLEnum(ActivityType), nullable=False, default=ActivityType.UNKNOWN)
     auto_detected = Column(Boolean, default=False, nullable=False)
     is_baseline = Column(Boolean, default=False, nullable=False)
     is_processed = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
 
-    #Basic metrics
+    # Basic metrics
     step_count = Column(Integer)
     cadence = Column(Float, comment="Каденс (шагов/мин)")
     avg_speed = Column(Float, comment="Средняя скорость (м/с)")
@@ -298,6 +290,32 @@ class WalkingSessions(Base):
     raw_data = relationship("RawData", back_populates="session", cascade="all, delete-orphan")
     step_metrics = relationship("StepMetrics", back_populates="session", cascade="all, delete-orphan")
 
+
+class RawData(Base):
+    __tablename__ = "raw_data"
+    id = Column(Integer, autoincrement=True)
+    __table_args__ = (
+        PrimaryKeyConstraint('id', 'timestamp'),
+        {
+            "info": {
+                "is_hypertable": True,
+                "time_column": "timestamp"
+            }
+        }
+    )
+    session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    placement = Column(Integer, nullable=False)
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+    a_x = Column(Float)
+    a_y = Column(Float)
+    a_z = Column(Float)
+    g_x = Column(Float)
+    g_y = Column(Float)
+    g_z = Column(Float)
+
+    session = relationship("WalkingSessions", back_populates="raw_data")
+
+
 class StepMetrics(Base):
     __tablename__ = "step_metrics"
     __table_args__ = (
@@ -309,10 +327,10 @@ class StepMetrics(Base):
             }
         }
     )
-    id = Column(Integer)
+    id = Column(Integer, autoincrement=True)
     session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), index=True, nullable=False)
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
-    timestamp = Column(DateTime,default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     side = Column(SQLEnum(SideEnum), comment="Левая/правая нога")
     step_number = Column(Integer, comment="Номер шага в сессии")
 
@@ -330,7 +348,7 @@ class StepMetrics(Base):
     step_time = Column(Float, comment="Время шага (сек)")
 
     session = relationship("WalkingSessions", back_populates="step_metrics")
-    device = relationship("Devices")
+
 
 class UserProgress(Base):
     __tablename__ = "user_progress"
@@ -370,40 +388,42 @@ class UserProgress(Base):
         CheckConstraint("period_type IN ('week', 'month')", name="check_period_type"),
     )
 
+
 class Exercises(Base):
-        __tablename__ = "exercises"
+    __tablename__ = "exercises"
 
-        id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
 
-        # Basic Info
-        name = Column(String(255), nullable=False)
-        description = Column(Text)
-        instructions = Column(Text, comment="Пошаговая инструкция")
+    # Basic Info
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    instructions = Column(Text, comment="Пошаговая инструкция")
 
-        # Media
-        video_url = Column(String(500))
-        thumbnail_url = Column(String(500))
-        duration = Column(Integer, comment="Длительность (сек)")
+    # Media
+    video_url = Column(String(500))
+    thumbnail_url = Column(String(500))
+    duration = Column(Integer, comment="Длительность (сек)")
 
-        # Categorization
-        category = Column(String(50), comment="balance/strength/flexibility/gait_training")
-        target_area = Column(String(50), comment="knee/hip/ankle/general")
-        difficulty = Column(SQLEnum(ExerciseD), default=ExerciseD.EASY)
+    # Categorization
+    category = Column(String(50), comment="balance/strength/flexibility/gait_training")
+    target_area = Column(String(50), comment="knee/hip/ankle/general")
+    difficulty = Column(SQLEnum(ExerciseD), default=ExerciseD.EASY)
 
-        # For which issues
-        addresses_issues = Column(JSON, comment='["low_cadence", "high_gvi", ...]')
+    # For which issues
+    addresses_issues = Column(JSON, comment='["low_cadence", "high_gvi", ...]')
 
-        # Recommendations
-        recommended_sets = Column(Integer, default=3)
-        recommended_reps = Column(Integer, default=10)
-        rest_time = Column(Integer, comment="Отдых между подходами (сек)")
+    # Recommendations
+    recommended_sets = Column(Integer, default=3)
+    recommended_reps = Column(Integer, default=10)
+    rest_time = Column(Integer, comment="Отдых между подходами (сек)")
+
 
 class MedicalReport(Base):
     __tablename__ = "medical_reports"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    patient_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
-    doctor_id = Column(Integer, ForeignKey("doctor.id", ondelete="SET NULL"), nullable=True)
+    patient_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)  # Fixed
+    doctor_id = Column(Integer, ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True)  # Fixed
     report_start_date = Column(DateTime, nullable=False)
     report_end_date = Column(DateTime, nullable=False)
     session_ids = Column(JSON, comment='[session_id, session_id, ...]')
@@ -411,19 +431,20 @@ class MedicalReport(Base):
     pdf_url = Column(String(500), comment="S3/local path")
     pdf_size = Column(Integer, comment="Размер в байтах")
     summary = Column(JSON, comment='{"avg_cadence": 115, "improvement": "+12%", ...}')
-    patient = relationship("Users", back_populates="medical_reports")
-    doctor = relationship("Doctors")
+
+    user = relationship("Users", back_populates="medical_reports")  # Fixed
+    doctor = relationship("Doctors", back_populates="medical_reports")
 
 
 async def init_database():
     """Initialize all tables including TimescaleDB hypertables"""
-    async with engine.connect() as conn:
-        async with conn.begin():
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
-            await conn.run_sync(Base.metadata.create_all)
-            await convert_to_hypertables(conn)
-            await create_indexes(conn)
-            await setup_retention_policies(conn)
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"))
+        await conn.run_sync(Base.metadata.create_all)
+        await convert_to_hypertables(conn)
+        await create_indexes(conn)
+        await setup_retention_policies(conn)
+
 
 async def convert_to_hypertables(conn):
     """Convert tables to TimescaleDB hypertables based on metadata"""
@@ -436,9 +457,10 @@ async def convert_to_hypertables(conn):
                     f"SELECT create_hypertable('{table_name}', '{time_col}', "
                     f"if_not_exists => TRUE, migrate_data => TRUE);"
                 ))
-                print(f" {table_name} hypertable")
+                print(f"✓ {table_name} hypertable")
             except Exception as e:
-                print(f" {table_name} warning: {e}")
+                print(f"⚠ {table_name} warning: {e}")
+
 
 async def create_indexes(conn):
     """Create additional indexes for performance"""
@@ -452,9 +474,10 @@ async def create_indexes(conn):
     for index_sql in indexes:
         try:
             await conn.execute(text(index_sql))
-            print(f" {index_sql.split('idx_')[1].split(' ')[0]}")
+            print(f"✓ {index_sql.split('idx_')[1].split(' ')[0]}")
         except Exception as e:
-            print(f"  {e}")
+            print(f"⚠ {e}")
+
 
 async def setup_retention_policies(conn):
     """Setup TimescaleDB retention policies"""
@@ -473,18 +496,21 @@ async def setup_retention_policies(conn):
             "SELECT add_retention_policy('walking_sessions', INTERVAL '30 days', "
             "if_not_exists => TRUE);"
         ))
+        print("✓ Retention policies set")
     except Exception as e:
-        print(f"Retention policy warning: {e}")
+        print(f"⚠ Retention policy warning: {e}")
 
 
 async def drop_all_tables():
-    async with engine.connect() as conn:
-        async with conn.begin():
-            await conn.run_sync(Base.metadata.drop_all)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
 
 async def main():
     await init_database()
 
+
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

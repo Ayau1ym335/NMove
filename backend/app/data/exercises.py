@@ -1,14 +1,36 @@
-from tables import Exercise
+from tables import Exercises, ExerciseD, engine
+from sqlalchemy.orm import AsyncSessionLocal
 
 async def seed_exercises():
-    """
-    Seed the database with initial exercises
-    """
-    async with AsyncSessionLocal() as session:
-        exercises = [
-            Exercise(
+    async with AsyncSessionLocal(engine) as session:
+        ex_init = [
+            Exercises(
+                name=''
             ),
         ]
 
-        session.add_all(exercises)
+        session.add_all(ex_init)
         await session.commit()
+
+
+        name = Column(String(255), nullable=False)
+        description = Column(Text)
+        instructions = Column(Text, comment="Пошаговая инструкция")
+
+        # Media
+        video_url = Column(String(500))
+        thumbnail_url = Column(String(500))
+        duration = Column(Integer, comment="Длительность (сек)")
+
+        # Categorization
+        category = Column(String(50), comment="balance/strength/flexibility/gait_training")
+        target_area = Column(String(50), comment="knee/hip/ankle/general")
+        difficulty = Column(SQLEnum(ExerciseD), default=ExerciseD.EASY)
+
+        # For which issues
+        addresses_issues = Column(JSON, comment='["low_cadence", "high_gvi", ...]')
+
+        # Recommendations
+        recommended_sets = Column(Integer, default=3)
+        recommended_reps = Column(Integer, default=10)
+        rest_time = Column(Integer, comment="Отдых между подходами (сек)")

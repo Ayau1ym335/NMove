@@ -27,10 +27,7 @@ async def start_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    POST /api/sessions/start - Создание новой сессии ходьбы
-    
-    Создает новую сессию ходьбы для аутентифицированного пользователя.
-    Только залогиненные пользователи могут создавать сессии.
+    POST /api/sessions/start 
     """
     try:
         # Создаем новую сессию

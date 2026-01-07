@@ -25,7 +25,6 @@ app.add_middleware(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Запуск сервера Stridex: инициализация БД...")
     await init_database() 
     yield
 

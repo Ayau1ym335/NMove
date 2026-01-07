@@ -1,0 +1,286 @@
+
+
+
+
+
+class AdaptiveLowPassFilter:
+    """
+    Адаптивный low-pass фильтр с автоматическим выбором cutoff частоты
+    """
+
+    def __init__(self, fs: float = 125.0, order: int = 4, window_size: float = 2.0):
+        """
+        Args:
+            fs: Частота дискретизации (Hz)
+            order: Порядок фильтра Баттерворта
+            window_size: Размер окна для детекции активности (сек)
+        """
+        self.fs = fs
+        self.order = order
+        self.detector = ActivityDetector(fs=fs, window_size=window_size)
+
+    def filter_adaptive(
+        self,
+        data: np.ndarray,
+        return_activity: bool = False
+    ) -> Tuple[np.ndarray, ActivityType]:
+        """
+        Фильтровать данные с автоматическим выбором cutoff частоты
+
+        Args:
+            data: Входные данные [N] или [N, 3]
+            return_activity: Вернуть тип активности
+
+        Returns:
+            filtered_data: Отфильтрованные данные
+            activity: Определенный тип активности (если return_activity=True)
+        """
+        # Определить активность
+        activity, metrics = self.detector.detect_activity(data)
+
+        # Получить конфигурацию фильтра
+        config = FILTER_CONFIGS[activity]
+        cutoff_freq = config.cutoff_freq
+
+        # Применить фильтр
+        filtered_data = self._apply_lowpass(data, cutoff_freq)
+
+        if return_activity:
+            return filtered_data, activity, metrics
+        else:
+            return filtered_data
+
+    def _apply_lowpass(self, data: np.ndarray, cutoff_freq: float) -> np.ndarray:
+        """
+        Применить low-pass фильтр Баттерворта
+        """
+        nyq = 0.5 * self.fs
+        normal_cutoff = cutoff_freq / nyq
+
+        # Проверка на допустимость cutoff
+        if normal_cutoff >= 1.0:
+            normal_cutoff = 0.99
+
+        b, a = butter(self.order, normal_cutoff, btype='lowpass')
+
+        # Если 2D массив, фильтруем каждую ось отдельно
+        if data.ndim == 2:
+            filtered = np.zeros_like(data)
+            for i in range(data.shape[1]):
+                filtered[:, i] = filtfilt(b, a, data[:, i])
+            return filtered
+        else:
+            return filtfilt(b, a, data)
+
+    def filter_with_cutoff(self, data: np.ndarray, cutoff_freq: float) -> np.ndarray:
+        """
+        Фильтровать с конкретной cutoff частотой (без автоматического определения)
+        """
+        return self._apply_lowpass(data, cutoff_freq)
+
+
+class SegmentedAdaptiveFilter:
+    """
+    Сегментированная фильтрация - разные cutoff для разных сегментов данных
+    Полезно для длинных записей с разными активностями
+    """
+
+    def __init__(self, fs: float = 125.0, segment_duration: float = 2.0):
+        """
+        Args:
+            fs: Частота дискретизации
+            segment_duration: Длительность сегмента для анализа (сек)
+        """
+        self.fs = fs
+        self.segment_duration = segment_duration
+        self.segment_samples = int(segment_duration * fs)
+        self.filter = AdaptiveLowPassFilter(fs=fs, window_size=segment_duration)
+
+    def filter_segmented(
+        self,
+        data: np.ndarray,
+        overlap: float = 0.5
+    ) -> Tuple[np.ndarray, list]:
+        """
+        Фильтровать данные сегментами с перекрытием
+
+        Args:
+            data: Входные данные
+            overlap: Процент перекрытия между сегментами (0.0 - 1.0)
+
+        Returns:
+            filtered_data: Отфильтрованные данные
+            activities: Список определенных активностей для каждого сегмента
+        """
+        n_samples = len(data)
+        step = int(self.segment_samples * (1 - overlap))
+
+        filtered_data = np.zeros_like(data)
+        activities = []
+
+        for start in range(0, n_samples - self.segment_samples + 1, step):
+            end = start + self.segment_samples
+
+            # Извлечь сегмент
+            segment = data[start:end]
+
+            # Фильтровать сегмент
+            filtered_segment, activity, metrics = self.filter.filter_adaptive(
+                segment,
+                return_activity=True
+            )
+
+            activities.append({
+                'start': start / self.fs,
+                'end': end / self.fs,
+                'activity': activity,
+                'metrics': metrics
+            })
+
+            # Blend в выходной массив (для избежания разрывов)
+            if start == 0:
+                filtered_data[start:end] = filtered_segment
+            else:
+                # Плавный переход (linear blend)
+                blend_samples = int(self.segment_samples * overlap)
+                blend_weights = np.linspace(0, 1, blend_samples)
+
+                overlap_start = start
+                overlap_end = start + blend_samples
+
+                filtered_data[overlap_start:overlap_end] = (
+                    filtered_data[overlap_start:overlap_end] * (1 - blend_weights) +
+                    filtered_segment[:blend_samples] * blend_weights
+                )
+
+                filtered_data[overlap_end:end] = filtered_segment[blend_samples:]
+
+        return filtered_data, activities
+
+
+# ============================================
+# ИНТЕГРАЦИЯ С MADGWICK FILTER
+# ============================================
+
+try:
+    from madgwickahrs import MadgwickAHRS
+    MADGWICK_AVAILABLE = True
+except ImportError:
+    MADGWICK_AVAILABLE = False
+    print("Warning: madgwickahrs not installed. Install with: pip install madgwickahrs")
+
+
+class AdaptiveIMUProcessor:
+    """
+    Полная обработка IMU данных:
+    1. Адаптивная низкочастотная фильтрация
+    2. Madgwick фильтр для ориентации
+    3. Расчет углов Эйлера
+    """
+
+    def __init__(self, fs: float = 125.0, beta: float = 0.1):
+        """
+        Args:
+            fs: Частота дискретизации
+            beta: Madgwick beta gain (обычно 0.1 - 0.5)
+        """
+        self.fs = fs
+        self.beta = beta
+        self.lowpass_filter = AdaptiveLowPassFilter(fs=fs)
+
+        if MADGWICK_AVAILABLE:
+            self.madgwick = MadgwickAHRS(sampleperiod=1/fs, beta=beta)
+        else:
+            self.madgwick = None
+
+    def process_imu_data(
+        self,
+        acc_data: np.ndarray,
+        gyro_data: np.ndarray,
+        mag_data: np.ndarray = None
+    ) -> Dict:
+        """
+        Полная обработка IMU данных
+
+        Args:
+            acc_data: Ускорение [N, 3] (m/s²)
+            gyro_data: Угловая скорость [N, 3] (rad/s или deg/s)
+            mag_data: Магнитометр [N, 3] (опционально)
+
+        Returns:
+            results: Словарь с обработанными данными
+        """
+        # 1. Адаптивная фильтрация
+        acc_filtered, activity, metrics = self.lowpass_filter.filter_adaptive(
+            acc_data,
+            return_activity=True
+        )
+        gyro_filtered = self.lowpass_filter.filter_adaptive(gyro_data)
+
+        # 2. Конвертировать gyro в rad/s если нужно
+        if np.max(np.abs(gyro_filtered)) > 10:  # Похоже на deg/s
+            gyro_rad = np.deg2rad(gyro_filtered)
+        else:
+            gyro_rad = gyro_filtered
+
+        # 3. Madgwick filter для ориентации
+        quaternions = []
+        euler_angles = []
+
+        if self.madgwick is not None:
+            for i in range(len(acc_filtered)):
+                if mag_data is not None:
+                    self.madgwick.update(
+                        gyro_rad[i],
+                        acc_filtered[i],
+                        mag_data[i]
+                    )
+                else:
+                    self.madgwick.update_imu(
+                        gyro_rad[i],
+                        acc_filtered[i]
+                    )
+
+                q = self.madgwick.quaternion
+                quaternions.append(q.copy())
+
+                # Конвертировать в Euler
+                euler = self._quaternion_to_euler(q)
+                euler_angles.append(euler)
+
+        results = {
+            'acc_filtered': acc_filtered,
+            'gyro_filtered': gyro_filtered,
+            'activity': activity,
+            'activity_metrics': metrics,
+            'quaternions': np.array(quaternions) if quaternions else None,
+            'euler_angles': np.array(euler_angles) if euler_angles else None,
+            'cutoff_used': FILTER_CONFIGS[activity].cutoff_freq
+        }
+
+        return results
+
+    def _quaternion_to_euler(self, q: np.ndarray) -> np.ndarray:
+        """
+        Конвертировать quaternion в Euler angles (roll, pitch, yaw)
+        """
+        w, x, y, z = q
+
+        # Roll (x-axis rotation)
+        sinr_cosp = 2 * (w * x + y * z)
+        cosr_cosp = 1 - 2 * (x * x + y * y)
+        roll = np.arctan2(sinr_cosp, cosr_cosp)
+
+        # Pitch (y-axis rotation)
+        sinp = 2 * (w * y - z * x)
+        if abs(sinp) >= 1:
+            pitch = np.sign(sinp) * np.pi / 2
+        else:
+            pitch = np.arcsin(sinp)
+
+        # Yaw (z-axis rotation)
+        siny_cosp = 2 * (w * z + x * y)
+        cosy_cosp = 1 - 2 * (y * y + z * z)
+        yaw = np.arctan2(siny_cosp, cosy_cosp)
+
+        return np.array([roll, pitch, yaw])
