@@ -5,10 +5,9 @@ from typing import Optional
 from pydantic import BaseModel
 
 from data.tables import get_db, WalkingSessions, ActivityType
-from .auth import get_current_user, Users
+from auth import get_current_user, Users
 
 app = FastAPI()
-
 
 class SessionStartRequest(BaseModel):
     is_baseline: bool = False

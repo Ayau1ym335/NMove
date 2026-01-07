@@ -1,21 +1,45 @@
-from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Depends, status
-from typing import List, Literal
+from typing import List
 import uvicorn
 from datetime import datetime, timedelta
-app = FastAPI()
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from data.tables import init_database
+from routers import auth_r
+from schemas import IMUSample
+from contextlib import asynccontextmanager 
+app = FastAPI(
+    title="Gait Analysis API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-class IMUSample(BaseModel):
-    device_mac: str
-    session_id: str
-    device_pos: Literal['thigh', 'shin']
-    timestamp: int
-    accel_x: float
-    accel_y: float
-    accel_z: float
-    gyro_x: float
-    gyro_y: float
-    gyro_z: float
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Запуск сервера Stridex: инициализация БД...")
+    await init_database() 
+    yield
+
+app.include_router(auth_r.router)
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Gait Analysis API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+
 @app.post('/ingest', status_code=200)
 async def ingest(sample: List[IMUSample]):
     if not sample:

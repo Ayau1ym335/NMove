@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from data.tables import get_db, Users, Doctors, Profiles
 from schemas import UserLogin, UserBase,DoctorRegister, UserRegister, Token, UserResponse, DoctorResponse
-from app.auth import (
+from auth import (
     get_password_hash, 
     verify_password, 
     create_access_token, 
@@ -110,7 +110,7 @@ async def register_d(data: DoctorRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login-secure",response_model=Token,status_code=status.HTTP_200_OK,)
 async def login_secure(credentials: UserLogin,db: AsyncSession = Depends(get_db)):
-    user = authenticate_user(db, credentials.email, credentials.password)
+    user = await authenticate_user(db, credentials.email, credentials.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -127,4 +127,11 @@ async def login_secure(credentials: UserLogin,db: AsyncSession = Depends(get_db)
         "token_type": "bearer"
     }
     
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: Users = Depends(get_current_user)):
+    return current_user
 
+
+@router.get("/me_d", response_model=DoctorResponse)
+async def get_me_d(current_user: Doctors = Depends(get_current_user)):
+    return current_user
