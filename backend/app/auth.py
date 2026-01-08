@@ -75,3 +75,5 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
         return False
         
     return user
+
+#длина щиколотки до ног

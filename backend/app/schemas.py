@@ -12,7 +12,7 @@ class UserLogin(BaseModel):
     password: str = Field(
         ...,
         min_length=8,
-        max_length=100,
+        max_length=20,
         description="Пароль пользователя (минимум 8 символов)"
     )
 

@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.signal import find_peaks
-from dataclasses import dataclass
 from enum import Enum
 
 class ActivityType(Enum):
@@ -10,20 +9,6 @@ class ActivityType(Enum):
     RUNNING = "running"
     JUMPING = "jumping"
     UNKNOWN = "unknown"
-
-@dataclass
-class FilterConfig:
-    activity: ActivityType
-    cutoff_freq: float  # Hz
-
-FILTER_CONFIGS = {
-    ActivityType.STANDING: FilterConfig(activity=ActivityType.STANDING,cutoff_freq=25.0),
-    ActivityType.WALKING: FilterConfig(activity=ActivityType.WALKING,cutoff_freq=6.0),
-    ActivityType.STAIRS: FilterConfig(activity=ActivityType.STAIRS,cutoff_freq=11.0),
-    ActivityType.RUNNING: FilterConfig(activity=ActivityType.RUNNING,cutoff_freq=18.0),
-    ActivityType.JUMPING: FilterConfig(activity=ActivityType.JUMPING,cutoff_freq=35.0),
-    ActivityType.UNKNOWN: FilterConfig(activity=ActivityType.UNKNOWN,cutoff_freq=10.0)
-}
 
 class ActivityDetector:
     def __init__(self, fs: float = 125.0, window_size: float = 2.0):
