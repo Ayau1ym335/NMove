@@ -107,3 +107,4 @@ class GaitEventDetector:
         most_significant = minima[np.argmax(prominences)]
         
         return start + most_significant
+        

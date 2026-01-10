@@ -1,6 +1,8 @@
 import numpy as np
 from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
+from raw_process import unpack_bin
+import json 
 
 @dataclass
 class CalibrationParams:
@@ -27,10 +29,39 @@ class CalibrationParams:
             gyro_scale=np.array(data['gyro_scale']),
         )
 
+def run_lab_calibration(bin_file_path: str):
+    try:
+        raw_data = unpack_bin(bin_file_path)
+    except Exception as e:
+        print(f"Error: {e}")
+        return
+
+    calibrator = IMUCalibrator()
+    lab_params = calibrator.calibrate_6point(raw_data)
+    output_file = "calibration_lab.json"
+    try:
+        params_dict = lab_params.to_dict()
+        with open(output_file, 'w') as f:
+            json.dump(params_dict, f, indent=4)
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return
 
 class IMUCalibrator:
     def __init__(self, fs: float = 125.0):
         self.fs = fs
+        self.current_params: Optional[CalibrationParams] = None
+
+    def set_params(self, params: CalibrationParams):
+        self.current_params = params
+
+    def merge_calibration(self, static_params: CalibrationParams, lab_params: Optional[CalibrationParams] = None) -> CalibrationParams:
+        if lab_params is None:
+            return static_params
+            
+        return CalibrationParams(acc_bias=static_params.acc_bias, acc_scale=lab_params.acc_scale,
+        gyro_bias=static_params.gyro_bias,gyro_scale=lab_params.gyro_scale)
     
     def calibrate_static(
         self,
@@ -65,11 +96,8 @@ class IMUCalibrator:
             gyro_bias=gyro_bias,
             gyro_scale=gyro_scale
         )
-    
-    def calibrate_6point(
-        self,
-        data: np.ndarray
-    ) -> CalibrationParams:
+
+    def calibrate_6point(self, data: np.ndarray) -> CalibrationParams:
         """
         только один раз за весь период
         нужна будет анимация
@@ -83,51 +111,38 @@ class IMUCalibrator:
         5. +Z вверх (устройство горизонтально, экран вверх)
         6. -Z вверх (устройство горизонтально, экран вниз)           
         """
-        acc_measurements = data[:, 2:5]
-        n_samples = len(acc_measurements)
-        samples_per_position = n_samples // 6
-        
+        acc_raw = data[:, 2:5]
+        gyro_raw = data[:, 5:8]
+    
+        n_samples = len(acc_raw)
+        samples_per_pos = n_samples // 6
+        g = 9.81
+    
         required_positions = ["+x", "-x", "+y", "-y", "+z", "-z"]
-        acc_measurements = {}
-        for i, pos in enumerate(required_positions):
-            start_idx = i * samples_per_position
-            end_idx = start_idx + samples_per_position
-            acc_measurements[pos] = acc_measurements[start_idx:end_idx]
-        
         means = {}
-        for pos, data in acc_measurements.items():
-            means[pos] = np.mean(data, axis=0)
-        
+    
+        for i, pos in enumerate(required_positions):
+           chunk = acc_raw[i * samples_per_pos : (i + 1) * samples_per_pos]
+           means[pos] = np.mean(chunk, axis=0)
+    
         acc_bias = np.zeros(3)
         acc_scale = np.ones(3)
-        
-        g = 9.81  
-        for axis in range(3):
-            pos_key = ["+x", "+y", "+z"][axis]
-            neg_key = ["-x", "-y", "-z"][axis]
-            
-            pos_val = means[pos_key][axis]
-            neg_val = means[neg_key][axis]
-            
-            acc_bias[axis] = (pos_val + neg_val) / 2
-
-            acc_scale[axis] = (pos_val - neg_val) / (2 * g)
-        
-        gyro_bias = np.mean(data[:, 5:8], axis=0)
-        gyro_scale = np.ones(3)
-        
-        return CalibrationParams(
-            acc_bias=acc_bias,
-            acc_scale=acc_scale,
-            gyro_bias=gyro_bias,
-            gyro_scale=gyro_scale
-        )
     
-    def apply_calibration(
-        self,
-        data: np.ndarray,
-        params: CalibrationParams,
-    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+        for i in range(3):
+           pos_val = means[required_positions[i*2]][i]     
+           neg_val = means[required_positions[i*2 + 1]][i] 
+        
+           acc_bias[i] = (pos_val + neg_val) / 2
+           acc_scale[i] = (pos_val - neg_val) / (2 * g)
+        
+        gyro_bias = np.mean(gyro_raw, axis=0)
+    
+        return CalibrationParams(acc_bias=acc_bias,acc_scale=acc_scale,gyro_bias=gyro_bias,gyro_scale=np.ones(3))
+
+    def apply_calibration(self,data: np.ndarray) -> np.ndarray:
+        if self.current_params is None:
+            return data
+        params = self.current_params
         calibrated_data = data.copy()
         acc_data = data[:, 2:5]
         gyro_data = data[:, 5:8]

@@ -1,7 +1,6 @@
 import numpy as np
 import numbers
 
-
 class Quaternion:
     def __init__(self, w_or_q, x=None, y=None, z=None):
         self._q = np.array([1, 0, 0, 0])
@@ -80,8 +79,6 @@ class Quaternion:
             q = self._q + other._q
 
         return Quaternion(q)
-
-    # Implementing other interfaces to ease working with the class
 
     @property
     def q(self):

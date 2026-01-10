@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import butter, filtfilt
 from detect_act import ActivityDetector, ActivityType
-from typing import Tuple
+from typing import Tuple, Any, Dict, List
 from dataclasses import dataclass
 
 @dataclass
@@ -73,7 +73,7 @@ class SegmentedAdaptiveFilter:
         self,
         data: np.ndarray,
         overlap: float = 0.5
-    ) -> Tuple[np.ndarray, list]:
+    ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         n_samples = len(data)
         step = int(self.segment_samples * (1 - overlap))
 
@@ -107,7 +107,3 @@ class SegmentedAdaptiveFilter:
                 filtered_data[overlap_end:end] = filtered_segment[blend_samples:]
 
         return filtered_data, activities
-
-
-
-

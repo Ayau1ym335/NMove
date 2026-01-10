@@ -4,9 +4,9 @@ from numpy.linalg import norm
 from .quaternion import Quaternion
 
 class MadgwickAHRS:
-    samplePeriod = 1/256
+    samplePeriod = 1/125
     quaternion = Quaternion(1, 0, 0, 0)
-    beta = 1
+    beta = 0.1
     zeta = 0
 
     def __init__(self, sampleperiod=None, quaternion=None, beta=None, zeta=None):
