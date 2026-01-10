@@ -285,7 +285,6 @@ class WalkingSessions(Base):
     # Variability
     gvi = Column(Float, comment="Gait Variability Index (%)")
     step_time_variability = Column(Float, comment="CV% времени шага")
-    step_length_variability = Column(Float, comment="CV% длины шага")
     knee_angle_variability = Column(Float, comment="CV% угла колена")
     stance_time_variability = Column(Float, comment="CV% времени опоры")
 
@@ -311,9 +310,7 @@ class StepMetrics(Base):
     )
     id = Column(Integer)
     session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), index=True, nullable=False)
-    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
     timestamp = Column(DateTime,default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
-    side = Column(SQLEnum(SideEnum), comment="Левая/правая нога")
     step_number = Column(Integer, comment="Номер шага в сессии")
 
     roll = Column(Float, comment="Крен (градусы)")
