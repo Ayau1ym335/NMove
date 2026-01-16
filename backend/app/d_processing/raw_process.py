@@ -10,6 +10,7 @@ from madgwick import MadgwickAHRS
 from step_detection import StepDetector
 from .quaternion import Quaternion
 from detect_act import ActivityDetector
+from .step_pro import calculate_step_metrics
 
 def unpack_bin(file_path):
     dt = np.dtype([
@@ -51,6 +52,7 @@ class GaitAnalysisOrchestrator:
         activity_detector=ActivityDetector(),
         filter=Filter(),
         event_detector=StepDetector(),
+        calculate_step_metrics= None,
         sampling_rate: int = 125
     ):
         self.unpacking = unpack_bin
@@ -59,6 +61,7 @@ class GaitAnalysisOrchestrator:
         self.activity_detector = activity_detector
         self.filter = filter
         self.event_detector = event_detector
+        self.calculate_step_metrics = calculate_step_metrics
         self.sampling_rate = sampling_rate
         self.dt = 1.0 / sampling_rate
         
@@ -104,6 +107,12 @@ class GaitAnalysisOrchestrator:
         except Exception as e:
             cycles, orientations = []
             return ' Have an error: {e}'
+        
+        try:
+            metrics_list = self.calculate_step_metrics(filtrated, orientations, cycles)
+        except Exception as e:
+            return ' Have an error: {e}'
+
         
 
     def orientation(self, filtrated: np.ndarray):
