@@ -11,6 +11,7 @@ from step_detection import StepDetector
 from .quaternion import Quaternion
 from detect_act import ActivityDetector
 from .step_pro import calculate_step_metrics
+from .session_pro import SessionSummary
 
 def unpack_bin(file_path):
     dt = np.dtype([
@@ -53,6 +54,7 @@ class GaitAnalysisOrchestrator:
         filter=Filter(),
         event_detector=StepDetector(),
         calculate_step_metrics= None,
+        session = SessionSummary(),
         sampling_rate: int = 125
     ):
         self.unpacking = unpack_bin
@@ -62,6 +64,7 @@ class GaitAnalysisOrchestrator:
         self.filter = filter
         self.event_detector = event_detector
         self.calculate_step_metrics = calculate_step_metrics
+        self.session = session
         self.sampling_rate = sampling_rate
         self.dt = 1.0 / sampling_rate
         
@@ -110,6 +113,11 @@ class GaitAnalysisOrchestrator:
         
         try:
             metrics_list = self.calculate_step_metrics(filtrated, orientations, cycles)
+        except Exception as e:
+            return ' Have an error: {e}'
+        
+        try:
+            session_summary = self.session.calculate_session_summary(metrics_list, orientations, metadata)
         except Exception as e:
             return ' Have an error: {e}'
 
