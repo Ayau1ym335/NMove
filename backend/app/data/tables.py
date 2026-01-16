@@ -219,30 +219,6 @@ class Devices(Base):
 
     user = relationship("Users", back_populates="devices")
 
-class RawData(Base):
-    __tablename__ = "raw_data"
-    id = Column(Integer)
-    __table_args__ = (
-        PrimaryKeyConstraint('id', 'timestamp'),
-        {
-            "info": {
-                "is_hypertable": True,
-                "time_column": "timestamp"
-            }
-        }
-    )
-    session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    placement = Column(Integer, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
-    a_x = Column(Float)
-    a_y = Column(Float)
-    a_z = Column(Float)
-    g_x = Column(Float)
-    g_y = Column(Float)
-    g_z = Column(Float)
-
-    session = relationship("WalkingSessions", back_populates="raw_data")
-
 class WalkingSessions(Base):
     __tablename__ = "walking_sessions"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -253,7 +229,6 @@ class WalkingSessions(Base):
 
     status = Column(SQLEnum(SessionStatus), nullable=False, default=SessionStatus.STOPPED)
     activity_type = Column(SQLEnum(ActivityType), nullable=False, default=ActivityType.UNKNOWN )
-    auto_detected = Column(Boolean, default=False, nullable=False)
     is_baseline = Column(Boolean, default=False, nullable=False)
     is_processed = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
@@ -312,6 +287,7 @@ class StepMetrics(Base):
     session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), index=True, nullable=False)
     timestamp = Column(DateTime,default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     step_number = Column(Integer, comment="Номер шага в сессии")
+    side = Column(SQLEnum(SideEnum), default= SideEnum.RIGHT)
 
     roll = Column(Float, comment="Крен (градусы)")
     pitch = Column(Float, comment="Тангаж (градусы)")
@@ -325,6 +301,13 @@ class StepMetrics(Base):
     stance_time = Column(Float, comment="Время опоры (сек)")
     swing_time = Column(Float, comment="Время маха (сек)")
     step_time = Column(Float, comment="Время шага (сек)")
+
+    knee_flexion_max = Column(Float)
+    knee_extension_min = Column(Float)
+    knee_rom = Column(Float)
+
+    trunk_lean_at_hs = Column(Float)
+    knee_curve_json = Column(JSON, comment="100 normalized points of the knee angle")
 
     session = relationship("WalkingSessions", back_populates="step_metrics")
     device = relationship("Devices")
@@ -457,11 +440,6 @@ async def setup_retention_policies(conn):
     """Setup TimescaleDB retention policies"""
     try:
         await conn.execute(text(
-            "SELECT add_retention_policy('raw_data', INTERVAL '3 days', "
-            "if_not_exists => TRUE);"
-        ))
-
-        await conn.execute(text(
             "SELECT add_retention_policy('step_metrics', INTERVAL '7 days', "
             "if_not_exists => TRUE);"
         ))
@@ -481,7 +459,3 @@ async def drop_all_tables():
 
 async def main():
     await init_database()
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())

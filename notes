@@ -1,1 +1,150 @@
-функция для 6 точечной калибровки(обраотка данных, калибровка и сохарнить)
+def process_and_save_gait(bin_path: str, session_id: int, db_session):
+    # --- STEP 1: Process (Transient) ---
+    pipeline = GaitProcessingPipeline()
+    # The 'result' object contains the heavy arrays (filtered, orientation, etc.)
+    result = pipeline.process_session(bin_path, session_id)
+    
+    if result.error_message:
+        print(f"Error: {result.error_message}")
+        return
+
+    # --- STEP 2: Extract Metrics (Permanent) ---
+    # We move data from the 'result' suitcase into the calculator
+    calculator = GaitMetricsCalculator(sampling_rate=125.0)
+    
+    # This list contains only the small, clean dictionaries for the DB
+    step_metrics_list = calculator.calculate(
+        orientations=result.orientation,
+        step_events=result.step_events,
+        session_id=session_id
+    )
+
+    # --- STEP 3: Save to DB and Cleanup ---
+    # Now we save only the steps. 
+    # The 'result' object will be cleared from RAM once this function ends.
+    save_steps_to_db(db_session, step_metrics_list)
+
+
+
+That is a very insightful catch. In gait analysis, sessions are rarely "pure." A patient might walk, stop to adjust their shoe, walk again, and then stand still.
+
+If you treat the **whole session** as one big walk, your averages (like cadence and speed) will be "polluted" by the moments the patient was standing still.
+
+### 1. How to restructure the "Activity" logic
+
+Since a session now contains multiple activities, you should treat **Activities** as a bridge between the **Session** and the **Steps**.
+
+I recommend adding an `ActivitySegment` table. This allows you to say: *"In Session #10, the first 30 seconds were 'Walking', then 10 seconds of 'Standing', then another 60 seconds of 'Walking'."*
+
+---
+
+### 2. Proposed Database Change
+
+Instead of a simple column in `WalkingSessions`, use this structure:
+
+**Table: `activity_segments**`
+
+* `id`: PK
+* `session_id`: FK to `walking_sessions`
+* `activity_type`: (Enum: WALKING, STANDING, UNKNOWN)
+* `start_time_offset`: (Seconds from start of session)
+* `end_time_offset`: (Seconds from start of session)
+* `step_count`: (How many steps occurred in this specific segment)
+
+**Table: `step_metrics**`
+
+* ... (your current columns) ...
+* `activity_segment_id`: FK to `activity_segments` (This is key!)
+
+---
+
+### 3. Why this is helpful for Data Interpretation
+
+By saving activities, you can provide much better medical insights:
+
+* **Filter out "Noise":** You can calculate metrics using only segments marked as `WALKING`. This prevents the "Standing" time from lowering the average cadence.
+* **Fatigue Analysis:** You can compare the **first** walking segment to the **last** walking segment. If the `knee_angle` decreases or `step_time_variability` increases, it's a sign of patient fatigue.
+* **Context:** If a doctor sees a high "Variability" score, they can look at the activities and see: *"Ah, the patient was turning around or stopping often, that's why the data looks irregular."*
+
+---
+
+### 4. Implementation in your Pipeline
+
+In your `ProcessedData` class, you already have `activity: Optional[List[Dict[str, Any]]]`. Your `SegmentedAdaptiveFilter` identifies these.
+
+When you move data to the `GaitMetricsCalculator`, you can now do this:
+
+1. **Save the Session** record.
+2. **Save the Activity Segments** (e.g., Segment 1: Walking, Segment 2: Standing).
+3. **Assign each Step** to the ID of the segment it belongs to based on the timestamp.
+
+### My Recommendation:
+
+**Yes, save them.** But don't just save a label; save the **time-stamps (offsets)** of when each activity started and ended. This makes your data "research-grade."
+
+**Would you like me to help you modify the `GaitMetricsCalculator` so it automatically assigns each detected step to the correct `activity_segment_id`?**
+
+
+Вычислять **Stance/Swing time** (время опоры и время маха) нужно именно внутри вашего класса `GaitMetricsCalculator`, в том месте, где вы разбираете каждый отдельный шаг.
+
+В коде, который вы прислали ранее, за это отвечает метод `_calculate_step_metrics`.
+
+### Где именно это происходит:
+
+Когда ваш детектор шагов (`StepDetector`) находит характерные точки, он передает их в виде индексов:
+
+1. **HS (Heel Strike):** Пятка коснулась земли (начало шага).
+2. **TO (Toe Off):** Носок оторвался от земли (момент перехода от опоры к маху).
+3. **Next HS:** Пятка коснулась земли снова (конец этого шага и начало следующего).
+
+---
+
+### Логика в коде:
+
+Вот фрагмент вашего `GaitMetricsCalculator`, где происходит этот расчет:
+
+```python
+def _calculate_step_metrics(self, orientations, event, session_id, step_number):
+    hs = event['hs']        # Начало опоры
+    to = event.get('to')    # Момент отрыва носка (Toe Off)
+    next_hs = event['next_hs'] # Конец шага
+
+    # Общее время шага (от касания до касания)
+    step_time = self._index_to_seconds(next_hs - hs)
+
+    if to is not None:
+        # Фаза опоры (Stance): от касания пятки до отрыва носка
+        stance_time = self._index_to_seconds(to - hs)
+        
+        # Фаза маха (Swing): от отрыва носка до следующего касания пятки
+        swing_time = self._index_to_seconds(next_hs - to)
+    else:
+        # Если детектор не нашел точку TO (Toe Off),
+        # используем медицинскую норму 60% опора / 40% мах
+        stance_time = step_time * 0.6
+        swing_time = step_time * 0.4
+
+    return {
+        "stance_time": float(stance_time),
+        "swing_time": float(swing_time),
+        "step_time": float(step_time),
+        # ... остальные метрики
+    }
+
+```
+
+### Почему это важно для базы данных:
+
+Когда вы сохраните каждый шаг отдельно в таблицу `step_metrics`, вы сможете рассчитать средние показатели для всей сессии (Stage 7):
+
+* **Average Stance Time:** `AVG(stance_time)` по всем шагам в сессии.
+* **Stance/Swing Ratio:** Отношение среднего времени опоры к среднему времени маха. Если это число сильно отклоняется от **1.5** (60/40), это может указывать на патологию походки.
+
+### Что нужно проверить:
+
+Убедитесь, что ваш `StepDetector` (детектор шагов) действительно возвращает индекс `'to'`.
+
+* Если ваш детектор находит только удары пятки (`hs`), то `stance_time` всегда будет рассчитываться как 60% от шага.
+* Чтобы расчет был **настоящим (клиническим)**, детектор должен искать пик в данных акселерометра или гироскопа, который соответствует моменту отрыва ноги.
+
+**Хотите, я помогу вам доработать `StepDetector`, чтобы он более точно находил момент Toe-Off (отрыва носка)?**

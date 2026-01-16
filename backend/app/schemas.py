@@ -63,9 +63,9 @@ class DoctorRegister(UserBase):
     email: EmailStr
     password: str = Field(
         ...,
-        min_length=6,
+        min_length=8,
         max_length=100,
-        description="Пароль (минимум 6 символов)"
+        description="Пароль (минимум 8 символов)"
     )
     gender: GenderEnum
     date_of_birth: datetime
