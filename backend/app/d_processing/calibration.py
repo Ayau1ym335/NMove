@@ -51,14 +51,6 @@ class Calibrator:
     ) -> Tuple[SensorCalibration, SensorCalibration]:
         assert len(position_ranges) == 6, "Требуется ровно 6 статических позиций"
         g = 9.81
-        expected_values = np.array([
-            [g, 0, 0],    # +X up
-            [-g, 0, 0],   # -X up
-            [0, g, 0],    # +Y up
-            [0, -g, 0],   # -Y up
-            [0, 0, g],    # +Z up
-            [0, 0, -g]    # -Z up
-        ], dtype=np.float32)
         
         def calibrate_sensor(acc_data: np.ndarray, gyro_data: np.ndarray) -> SensorCalibration:
             measured_acc = np.zeros((6, 3), dtype=np.float32)

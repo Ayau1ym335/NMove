@@ -1,8 +1,9 @@
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, is_dataclass
 from enum import Enum
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 from scipy import signal
+from datetime import datetime
 
 class ActivityType(Enum):
     STANDING = "standing"
@@ -258,3 +259,26 @@ class ActivityDetector:
             summary[segment.activity_type.value] += duration
         
         return summary
+
+def jsonb(segments: List[Any]) -> List[dict]:
+    json_ready_list = []
+    
+    for seg in segments:
+        features_data = {}
+        if is_dataclass(seg.features):
+            features_data = asdict(seg.features)
+        elif isinstance(seg.features, dict):
+            features_data = seg.features
+        else:
+            features_data = {"raw_data": str(seg.features)}
+
+        segment_dict = {
+            "activity_type": seg.activity_type.value if isinstance(seg.activity_type, Enum) else seg.activity_type,
+            "start_time": seg.start_time.isoformat() if isinstance(seg.start_time, datetime) else seg.start_time,
+            "end_time": seg.end_time.isoformat() if isinstance(seg.end_time, datetime) else seg.end_time,
+            "confidence": round(float(seg.confidence), 4),
+            "features": features_data  
+        }
+        json_ready_list.append(segment_dict)
+        
+    return json_ready_list

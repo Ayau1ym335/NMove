@@ -1,353 +1,302 @@
 import numpy as np
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from enum import Enum
-from datetime import datetime
+from typing import List, Dict, Optional, Any
 import logging
 from data.tables import SessionStatus
+from .raw_process import Metadata
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('SessionSummary')
 
-@dataclass
-class SessionSummary:
-    session_id: Optional[int] = None
-    user_id: Optional[int] = None
-    session_date: Optional[str] = None
-    is_baseline: bool = False
-    user_notes: Optional[str] = None
-    status: SessionStatus = SessionStatus.COMPLETED
-    is_processed: bool = True
-    
-    step_count: int = 0
-    duration: float = 0.0  
-    
-    cadence: float = 0.0  
-    avg_step_time: float = 0.0
-    std_step_time: float = 0.0
-    avg_stance_time: float = 0.0
-    std_stance_time: float = 0.0
-    avg_swing_time: float = 0.0
-    std_swing_time: float = 0.0
-    stance_swing_ratio: float = 0.0
-    
-    knee_angle_mean: float = 0.0
-    knee_angle_std: float = 0.0
-    knee_angle_max: float = 0.0
-    knee_angle_min: float = 0.0
-    knee_amplitude: float = 0.0  
-    avg_knee_rom: float = 0.0
-
-    hip_angle_mean: float = 0.0
-    hip_angle_std: float = 0.0
-    hip_angle_max: float = 0.0
-    hip_angle_min: float = 0.0
-    hip_amplitude: float = 0.0
-    avg_hip_rom: float = 0.0
-    
-    cv_step_time: float = 0.0
-    cv_stance_time: float = 0.0
-    cv_knee_angle: float = 0.0
-    cv_hip_angle: float = 0.0
-    
-    gvi: float = 0.0 
-
-    avg_roll: float = 0.0
-    avg_pitch: float = 0.0
-    avg_yaw: float = 0.0
-    
-    avg_cadence_per_step: float = 0.0
-    symmetry_index: Optional[float] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'session_id': self.session_id,
-            'user_id': self.user_id,
-            'session_date': self.session_date,
-            'is_baseline': self.is_baseline,
-            'user_notes': self.user_notes,
-            'status': self.status.value,
-            'is_processed': self.is_processed,
-            'step_count': self.step_count,
-            'duration': round(self.duration, 3),
-            'cadence': round(self.cadence, 2),
-            'avg_step_time': round(self.avg_step_time, 4),
-            'std_step_time': round(self.std_step_time, 4),
-            'avg_stance_time': round(self.avg_stance_time, 4),
-            'std_stance_time': round(self.std_stance_time, 4),
-            'avg_swing_time': round(self.avg_swing_time, 4),
-            'std_swing_time': round(self.std_swing_time, 4),
-            'stance_swing_ratio': round(self.stance_swing_ratio, 3),
-            'knee_angle_mean': round(self.knee_angle_mean, 2),
-            'knee_angle_std': round(self.knee_angle_std, 2),
-            'knee_angle_max': round(self.knee_angle_max, 2),
-            'knee_angle_min': round(self.knee_angle_min, 2),
-            'knee_amplitude': round(self.knee_amplitude, 2),
-            'avg_knee_rom': round(self.avg_knee_rom, 2),
-            'hip_angle_mean': round(self.hip_angle_mean, 2),
-            'hip_angle_std': round(self.hip_angle_std, 2),
-            'hip_angle_max': round(self.hip_angle_max, 2),
-            'hip_angle_min': round(self.hip_angle_min, 2),
-            'hip_amplitude': round(self.hip_amplitude, 2),
-            'avg_hip_rom': round(self.avg_hip_rom, 2),
-            'cv_step_time': round(self.cv_step_time, 2),
-            'cv_stance_time': round(self.cv_stance_time, 2),
-            'cv_knee_angle': round(self.cv_knee_angle, 2),
-            'cv_hip_angle': round(self.cv_hip_angle, 2),
-            'gvi': round(self.gvi, 2),
-            'avg_roll': round(self.avg_roll, 2),
-            'avg_pitch': round(self.avg_pitch, 2),
-            'avg_yaw': round(self.avg_yaw, 2),
-            'avg_cadence_per_step': round(self.avg_cadence_per_step, 2),
-            'symmetry_index': round(self.symmetry_index, 2) if self.symmetry_index else None
-        }
-
-
 def calculate_session_summary(
     metrics_list: List[Dict[str, Any]],
-    raw_orientation: Optional[Any] = None,
-    session_metadata: Optional[Dict[str, Any]] = None
-) -> SessionSummary:
-    """
-    raw_orientation : np.ndarray or dict, optional
-        Полный массив углов Эйлера для всей сессии.
-        Ожидаемые поля: roll, pitch, yaw или
-        shank_roll, shank_pitch, shank_yaw
-    session_metadata : Dict, optional
-        Метаданные сессии: session_id, user_id, session_date,
-        is_baseline, user_notes
-    """
-    summary = SessionSummary()
-
-    if session_metadata:
-        summary.session_id = session_metadata.get('session_id')
-        summary.user_id = session_metadata.get('user_id')
-        summary.session_date = session_metadata.get('session_date') or \
-                               datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        summary.is_baseline = session_metadata.get('is_baseline', False)
-        summary.user_notes = session_metadata.get('user_notes')
-    else:
-        summary.session_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
+    orientation: np.ndarray,
+    activities: List[Dict[str, Any]],
+    session_metadata: Metadata
+) -> Dict[str, Any]:
     if not metrics_list or len(metrics_list) == 0:
-        logger.warning("Пустой список метрик, возвращаем нулевую сводку")
-        summary.status = SessionStatus.FAILED
-        summary.is_processed = True
-        return summary
+        logger.warning("Empty metrics list - no steps detected.")
+        return None
+    basic_stats = _calculate_basic_temporal_stats(metrics_list)
+    kinematic_stats = _calculate_kinematic_aggregation(metrics_list)
+    variability_stats = _calculate_variability_metrics(metrics_list)
+    gvi = _calculate_gvi(variability_stats)
+    orientation_stats = _calculate_global_orientation(orientation)
+    clinical_stats = _calculate_clinical_metrics(metrics_list)
+    avg_speed = _calculate_speed(metrics_list, session_metadata)
+    summary = {
+        'start_time': session_metadata.start_time.isoformat(),
+        'user_notes': session_metadata.user_notes,
+        'is_baseline': session_metadata.is_baseline,
+        'user_id': session_metadata.user_id,
+        'is_processed': True,
+        'status': SessionStatus.COMPLETED.value,
+        'activity_type': activities,
+  -
+        'step_count': basic_stats['step_count'],
+        'duration': basic_stats['duration'],
+        'cadence': basic_stats['cadence'],
+        'avg_speed': avg_speed['avg_speed'],
+        'avg_step_time': basic_stats['avg_step_time'],
+        'avg_stance_time': basic_stats['avg_stance_time'],
+        'avg_swing_time': basic_stats['avg_swing_time'],
+        'stance_swing_ratio': basic_stats['stance_swing_ratio'],
+        
+        'knee_angle_mean': kinematic_stats['knee_angle_mean'],
+        'knee_angle_std': kinematic_stats['knee_angle_std'],
+        'knee_angle_max': kinematic_stats['knee_angle_max'],
+        'knee_angle_min': kinematic_stats['knee_angle_min'],
+        'knee_amplitude': kinematic_stats['knee_amplitude'],
+        
+        'hip_angle_mean': kinematic_stats.get('hip_angle_mean'),
+        'hip_angle_std': kinematic_stats.get('hip_angle_std'),
+        'hip_angle_max': kinematic_stats.get('hip_angle_max'),
+        'hip_angle_min': kinematic_stats.get('hip_angle_min'),
+        'hip_amplitude': kinematic_stats.get('hip_amplitude'),
+        
+        'step_time_cv': variability_stats['step_time_cv'],
+        'stance_time_cv': variability_stats['stance_time_cv'],
+        'swing_time_cv': variability_stats['swing_time_cv'],
+        'knee_angle_cv': variability_stats['knee_angle_cv'],
+        
+        'gvi': gvi,
+        
+        'avg_roll': orientation_stats['avg_roll'],
+        'avg_pitch': orientation_stats['avg_pitch'],
+        'avg_yaw': orientation_stats['avg_yaw'],
+     
+        'stride_length_variability': clinical_stats.get('stride_length_variability'),
+        'double_support_time': clinical_stats.get('double_support_time'),
+        'avg_impact_force': clinical_stats.get('avg_impact_force'),
+        'avg_peak_angular_velocity': clinical_stats.get('avg_peak_angular_velocity'),
+    }
     
-    try:
-        summary.step_count = len(metrics_list)
-        logger.info(f"Обработка {summary.step_count} шагов")
+    return summary
+
+
+def _calculate_basic_temporal_stats(metrics_list: List[Dict]) -> Dict[str, float]:
+    step_times = np.array([m['step_time'] for m in metrics_list if 'step_time' in m])
+    stance_times = np.array([m['stance_time'] for m in metrics_list if 'stance_time' in m])
+    swing_times = np.array([m['swing_time'] for m in metrics_list if 'swing_time' in m])
+  
+    step_count = len(metrics_list)
+    if step_count > 0:
+        first_hs = metrics_list[0].get('hs_idx', 0)
+        last_hs = metrics_list[-1].get('next_hs_idx', 0)
         
-        step_times = _extract_field(metrics_list, 'step_time')
-        stance_times = _extract_field(metrics_list, 'stance_time')
-        swing_times = _extract_field(metrics_list, 'swing_time')
-        cadences = _extract_field(metrics_list, 'cadence')
-        
-        knee_roms = _extract_field(metrics_list, 'knee_rom')
-        knee_flexion_maxs = _extract_field(metrics_list, 'knee_flexion_max')
-        knee_extension_mins = _extract_field(metrics_list, 'knee_extension_min')
-        
-        hip_angles = _extract_field(metrics_list, 'hip_angle', default=None)
-        hip_roms = _extract_field(metrics_list, 'hip_rom', default=None)
-    
-        hs_indices = _extract_field(metrics_list, 'hs_idx')
-        next_hs_indices = _extract_field(metrics_list, 'next_hs_idx')
-        
-        if len(hs_indices) > 0 and len(next_hs_indices) > 0:
-            first_hs = hs_indices[0]
-            last_hs = next_hs_indices[-1]
-            summary.duration = float((last_hs - first_hs) / 125.0)
+        if 'step_time' in metrics_list[0]:
+            duration = float(np.sum(step_times))
         else:
-            summary.duration = float(np.sum(step_times))
-       
-        if summary.duration > 0:
-            summary.cadence = float((summary.step_count / summary.duration) * 60.0)
+            duration = 0.0
+    else:
+        duration = 0.0
+
+    if duration > 0:
+        cadence = (step_count / duration) * 60.0
+    else:
+        cadence = 0.0
+
+    avg_stance_time = float(np.mean(stance_times)) if len(stance_times) > 0 else 0.0
+    avg_swing_time = float(np.mean(swing_times)) if len(swing_times) > 0 else 0.0
     
-        summary.avg_step_time = float(np.mean(step_times))
-        summary.std_step_time = float(np.std(step_times))
-        summary.avg_stance_time = float(np.mean(stance_times))
-        summary.std_stance_time = float(np.std(stance_times))
-        summary.avg_swing_time = float(np.mean(swing_times))
-        summary.std_swing_time = float(np.std(swing_times))
-     
-        if summary.avg_swing_time > 0:
-            summary.stance_swing_ratio = float(summary.avg_stance_time / summary.avg_swing_time)
-        
-        if len(cadences) > 0:
-            summary.avg_cadence_per_step = float(np.mean(cadences))
-     
-        if len(knee_roms) > 0:
-            summary.avg_knee_rom = float(np.mean(knee_roms))
-        
-            all_knee_angles = []
-            for metric in metrics_list: 
-                knee_curve = metric.get('knee_curve_json')
-                if knee_curve:
-                    import json
-                    if isinstance(knee_curve, str):
-                        knee_curve = json.loads(knee_curve)
-                    all_knee_angles.extend(knee_curve)
-            
-            if all_knee_angles:
-                all_knee_angles = np.array(all_knee_angles)
-                summary.knee_angle_mean = float(np.mean(all_knee_angles))
-                summary.knee_angle_std = float(np.std(all_knee_angles))
-                summary.knee_angle_max = float(np.max(all_knee_angles))
-                summary.knee_angle_min = float(np.min(all_knee_angles))
-            else:
-                summary.knee_angle_max = float(np.max(knee_flexion_maxs))
-                summary.knee_angle_min = float(np.min(knee_extension_mins))
-                summary.knee_angle_mean = float(np.mean(knee_roms))
-                summary.knee_angle_std = float(np.std(knee_roms))
-            
-            summary.knee_amplitude = summary.knee_angle_max - summary.knee_angle_min
-     
-        if hip_angles is not None and len(hip_angles) > 0:
-            summary.hip_angle_mean = float(np.mean(hip_angles))
-            summary.hip_angle_std = float(np.std(hip_angles))
-            summary.hip_angle_max = float(np.max(hip_angles))
-            summary.hip_angle_min = float(np.min(hip_angles))
-            summary.hip_amplitude = summary.hip_angle_max - summary.hip_angle_min
-            
-        if hip_roms is not None and len(hip_roms) > 0:
-            summary.avg_hip_rom = float(np.mean(hip_roms))
-        
-        summary.cv_step_time = _calculate_cv(step_times)
-        summary.cv_stance_time = _calculate_cv(stance_times)
-        summary.cv_knee_angle = _calculate_cv(knee_roms)
-        
-        if hip_angles is not None and len(hip_angles) > 0:
-            summary.cv_hip_angle = _calculate_cv(hip_angles)
-        
-        cv_values = [
-            summary.cv_step_time,
-            summary.cv_stance_time,
-            _calculate_cv(swing_times)
-        ]
-        cv_values = [cv for cv in cv_values if cv > 0]  
-        
-        if cv_values:
-            summary.gvi = float(np.mean(cv_values))
-        
-        logger.info(f"GVI (Gait Variability Index): {summary.gvi:.2f}%")
-        
-        if raw_orientation is not None:
-            summary.avg_roll, summary.avg_pitch, summary.avg_yaw = \
-                _calculate_global_orientation(raw_orientation)
-            logger.info(f"Глобальная ориентация: Roll={summary.avg_roll:.2f}°, "
-                       f"Pitch={summary.avg_pitch:.2f}°, Yaw={summary.avg_yaw:.2f}°")
-     
-        summary.status = SessionStatus.COMPLETED
-        summary.is_processed = True
-        
-        return summary
-        
-    except Exception as e:
-        logger.error(f"Ошибка при расчете сводки: {e}")
-        summary.status = SessionStatus.STOPPED
-        summary.is_processed = True
-        return summary
-
-
-def _extract_field(
-    metrics_list: List[Dict[str, Any]],
-    field_name: str,
-    default: Any = 0.0
-) -> np.ndarray:
-    values = []
-    for metric in metrics_list:
-        value = metric.get(field_name, default)
-        if value is not None:
-            values.append(value)
+    if avg_swing_time > 0:
+        stance_swing_ratio = avg_stance_time / avg_swing_time
+    else:
+        stance_swing_ratio = 0.0
     
-    if not values:
-        if default is None:
-            return None
-        return np.array([])
+    return {
+        'step_count': int(step_count),
+        'duration': round(duration, 3),
+        'cadence': round(cadence, 2),
+        'avg_stance_time': round(avg_stance_time, 4),
+        'avg_swing_time': round(avg_swing_time, 4),
+        'stance_swing_ratio': round(stance_swing_ratio, 3)
+    }
+
+def _calculate_kinematic_aggregation(metrics_list: List[Dict]) -> Dict[str, Optional[float]]:
+    knee_flexion_max_values = np.array([
+        m['knee_flexion_max'] for m in metrics_list 
+        if 'knee_flexion_max' in m
+    ])
+    knee_extension_min_values = np.array([
+        m['knee_extension_min'] for m in metrics_list 
+        if 'knee_extension_min' in m
+    ])
+    knee_rom_values = np.array([
+        m['knee_rom'] for m in metrics_list 
+        if 'knee_rom' in m
+    ])
     
-    return np.array(values, dtype=np.float64)
+    all_knee_angles = []
+    for m in metrics_list:
+        if 'knee_curve_json' in m:
+            import json
+            try:
+                curve = json.loads(m['knee_curve_json'])
+                all_knee_angles.extend(curve)
+            except:
+                pass
+    
+    all_knee_angles = np.array(all_knee_angles) if all_knee_angles else np.array([])
+    
+    stats = {
+        'knee_angle_mean': float(np.mean(all_knee_angles)) if len(all_knee_angles) > 0 else 0.0,
+        'knee_angle_std': float(np.std(all_knee_angles)) if len(all_knee_angles) > 0 else 0.0,
+        'knee_angle_max': float(np.max(knee_flexion_max_values)) if len(knee_flexion_max_values) > 0 else 0.0,
+        'knee_angle_min': float(np.min(knee_extension_min_values)) if len(knee_extension_min_values) > 0 else 0.0,
+    }
+    
+    if stats['knee_angle_max'] > 0 or stats['knee_angle_min'] != 0:
+        stats['knee_amplitude'] = stats['knee_angle_max'] - stats['knee_angle_min']
+    else:
+        stats['knee_amplitude'] = 0.0
+    
+    hip_flexion_values = np.array([
+        m['hip_flexion_max'] for m in metrics_list 
+        if 'hip_flexion_max' in m
+    ])
+    hip_extension_values = np.array([
+        m['hip_extension_min'] for m in metrics_list 
+        if 'hip_extension_min' in m
+    ])
+    
+    if len(hip_flexion_values) > 0:
+        stats['hip_angle_mean'] = float(np.mean(hip_flexion_values))
+        stats['hip_angle_std'] = float(np.std(hip_flexion_values))
+        stats['hip_angle_max'] = float(np.max(hip_flexion_values))
+        stats['hip_angle_min'] = float(np.min(hip_extension_values)) if len(hip_extension_values) > 0 else 0.0
+        stats['hip_amplitude'] = stats['hip_angle_max'] - stats['hip_angle_min']
+    else:
+        stats['hip_angle_mean'] = None
+        stats['hip_angle_std'] = None
+        stats['hip_angle_max'] = None
+        stats['hip_angle_min'] = None
+        stats['hip_amplitude'] = None
+    
+    for key in stats:
+        if stats[key] is not None:
+            stats[key] = round(stats[key], 2)
+    
+    return stats
 
 
-def _calculate_cv(data: np.ndarray) -> float:
-    if len(data) == 0:
+def _calculate_variability_metrics(metrics_list: List[Dict]) -> Dict[str, float]:
+    def calculate_cv(values: np.ndarray) -> float:
+        if len(values) == 0 or np.mean(values) == 0:
+            return 0.0
+        return float((np.std(values) / np.mean(values)) * 100)
+    
+    step_times = np.array([m['step_time'] for m in metrics_list if 'step_time' in m])
+    stance_times = np.array([m['stance_time'] for m in metrics_list if 'stance_time' in m])
+    swing_times = np.array([m['swing_time'] for m in metrics_list if 'swing_time' in m])
+    cadences = np.array([m.get('cadence', 0) for m in metrics_list if 'cadence' in m])
+    
+    knee_roms = np.array([m['knee_rom'] for m in metrics_list if 'knee_rom' in m])
+    variability = {
+        'step_time_cv': round(calculate_cv(step_times), 2),
+        'stance_time_cv': round(calculate_cv(stance_times), 2),
+        'swing_time_cv': round(calculate_cv(swing_times), 2),
+        'knee_angle_cv': round(calculate_cv(knee_roms), 2),
+    }
+    
+    return variability
+
+
+def _calculate_gvi(variability_stats: Dict[str, float]) -> float:
+    temporal_cvs = [
+        variability_stats['step_time_cv'],
+        variability_stats['stance_time_cv'],
+        variability_stats['swing_time_cv'],
+    ]
+    
+    temporal_cvs = [cv for cv in temporal_cvs if cv > 0]
+    
+    if len(temporal_cvs) == 0:
         return 0.0
     
-    mean_val = np.mean(data)
-    
-    if mean_val == 0 or np.isnan(mean_val):
+    gvi = float(np.mean(temporal_cvs))
+    return round(gvi, 2)
+
+
+def _calculate_global_orientation(orientation: np.ndarray) -> Dict[str, float]:
+    stats = {}
+    def safe_mean(field_name: str) -> float:
+        if isinstance(orientation, dict):
+            if field_name in orientation:
+                values = orientation[field_name]
+                return float(np.mean(values)) if len(values) > 0 else 0.0
+        else:
+            if field_name in orientation.dtype.names:
+                values = orientation[field_name]
+                return float(np.mean(values)) if len(values) > 0 else 0.0
         return 0.0
     
-    std_val = np.std(data)
-    cv = (std_val / mean_val) * 100.0
+    stats['avg_roll'] = round(safe_mean('shank_roll'), 2)
+    stats['avg_pitch'] = round(safe_mean('shank_pitch'), 2)
+    stats['avg_yaw'] = round(safe_mean('shank_yaw'), 2)
     
-    return float(cv)
+    return stats
 
-
-def _calculate_global_orientation(
-    raw_orientation: Any
-) -> tuple[float, float, float]:
-    try:
-        if isinstance(raw_orientation, dict):
-            roll = raw_orientation.get('roll') or raw_orientation.get('shank_roll')
-            pitch = raw_orientation.get('pitch') or raw_orientation.get('shank_pitch')
-            yaw = raw_orientation.get('yaw') or raw_orientation.get('shank_yaw')
-            
-            if roll is None or pitch is None or yaw is None:
-                logger.warning("Не найдены поля roll/pitch/yaw в orientation")
-                return 0.0, 0.0, 0.0
-            
-            avg_roll = float(np.mean(roll))
-            avg_pitch = float(np.mean(pitch))
-            avg_yaw = float(np.mean(yaw))
-        elif hasattr(raw_orientation, 'dtype'):
-            field_names = raw_orientation.dtype.names
-
-            roll_field = 'roll' if 'roll' in field_names else 'shank_roll'
-            pitch_field = 'pitch' if 'pitch' in field_names else 'shank_pitch'
-            yaw_field = 'yaw' if 'yaw' in field_names else 'shank_yaw'
-            
-            if roll_field not in field_names:
-                logger.warning("Не найдены поля ориентации")
-                return 0.0, 0.0, 0.0
-            
-            avg_roll = float(np.mean(raw_orientation[roll_field]))
-            avg_pitch = float(np.mean(raw_orientation[pitch_field]))
-            avg_yaw = float(np.mean(raw_orientation[yaw_field]))
-            
+def _calculate_clinical_metrics(metrics_list: List[Dict]) -> Dict[str, Optional[float]]:
+    clinical = {}
+    
+    impact_forces = np.array([
+        m.get('impact_force', 0) for m in metrics_list 
+        if 'impact_force' in m
+    ])
+    if len(impact_forces) > 0:
+        clinical['avg_impact_force'] = round(float(np.mean(impact_forces)), 2)
+    else:
+        clinical['avg_impact_force'] = None
+    
+    peak_velocities = np.array([
+        m.get('peak_angular_velocity', 0) for m in metrics_list 
+        if 'peak_angular_velocity' in m
+    ])
+    if len(peak_velocities) > 0:
+        clinical['avg_peak_angular_velocity'] = round(float(np.mean(peak_velocities)), 2)
+    else:
+        clinical['avg_peak_angular_velocity'] = None
+    
+    step_times = np.array([m['step_time'] for m in metrics_list if 'step_time' in m])
+    if len(step_times) > 1:
+        stride_variability = float(np.std(step_times) / np.mean(step_times) * 100)
+        clinical['stride_length_variability'] = round(stride_variability, 2)
+    else:
+        clinical['stride_length_variability'] = None
+  
+    stance_times = np.array([m['stance_time'] for m in metrics_list if 'stance_time' in m])
+    step_times_for_double = np.array([m['step_time'] for m in metrics_list if 'step_time' in m])
+    
+    if len(stance_times) > 0 and len(step_times_for_double) > 0:
+        avg_stance_percent = np.mean(stance_times / step_times_for_double) * 100
+        if avg_stance_percent > 50:
+            double_support_estimate = (avg_stance_percent - 50) * 2
+            clinical['double_support_time'] = round(double_support_estimate, 2)
         else:
-            logger.warning("Неизвестный формат raw_orientation")
-            return 0.0, 0.0, 0.0
-        
-        return avg_roll, avg_pitch, avg_yaw
-        
-    except Exception as e:
-        logger.error(f"Ошибка расчета глобальной ориентации: {e}")
-        return 0.0, 0.0, 0.0
+            clinical['double_support_time'] = 0.0
+    else:
+        clinical['double_support_time'] = None
+    
+    return clinical
 
+def _calculate_speed(metrics_list: List[Dict], metadata: Metadata = None):
+    step_count = len(metrics_list)
+    step_times = np.array([m['step_time'] for m in metrics_list if 'step_time' in m])
+    duration = float(np.sum(step_times)) if step_count > 0 else 0.0
 
-def create_database_insert_statement(summary: SessionSummary) -> str:
-    data = summary.to_dict()
-    
-    fields = list(data.keys())
-    values = []
-    
-    for field in fields:
-        value = data[field]
-        if value is None:
-            values.append("NULL")
-        elif isinstance(value, str):
-            value = value.replace("'", "''")
-            values.append(f"'{value}'")
-        elif isinstance(value, bool):
-            values.append("TRUE" if value else "FALSE")
-        else:
-            values.append(str(value))
-    
-    query = f"""INSERT INTO session_summary (
-    {', '.join(fields)}
-) VALUES (
-    {', '.join(values)}
-);"""
-    
-    return query
+    if metadata and getattr(metadata, 'height', None):
+        height_m = metadata.height / 100.0 if metadata.height > 3.0 else metadata.height
+        base_step_length = height_m * 0.413
+        leg_length = height_m * 0.53
+    else:
+        base_step_length = 0.7
+        leg_length = 0.9
+
+    avg_hip_rom = np.mean([m.get('knee_rom', 30) for m in metrics_list]) / 1.5
+    dynamic_step_length = 2 * leg_length * np.sin(np.radians(avg_hip_rom / 2))
+    final_step_length = max(dynamic_step_length, base_step_length * 0.8)
+
+    total_distance = step_count * final_step_length
+    avg_speed = total_distance / duration if duration > 0 else 0.0
+
+    return {'avg_speed': round(avg_speed, 2)}

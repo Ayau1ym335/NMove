@@ -1,9 +1,11 @@
+from datetime import timedelta
 import numpy as np
 import json
 from typing import List, Dict, Any
 from scipy.interpolate import interp1d
 from dataclasses import dataclass
 import logging
+from .raw_process import Metadata
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('GaitMetrics')
@@ -18,7 +20,8 @@ def calculate_step_metrics(
     filtered_data: np.ndarray,
     orientations: np.ndarray,
     steps: List[Any], 
-    fs: int = 125
+    fs: int = 125,
+    metadata: Metadata = None
 ) -> List[Dict[str, Any]]:
     metrics_list = []
     n_samples = len(filtered_data)
@@ -57,7 +60,8 @@ def calculate_step_metrics(
                 to_idx=to_idx,
                 next_hs_idx=next_hs_idx,
                 fs=fs,
-                step_number=step_idx + 1
+                step_number=step_idx + 1,
+                metadata=metadata
             )
             
             metrics_list.append(step_metrics)
@@ -105,17 +109,16 @@ def _calculate_single_step_metrics(
     to_idx: int,
     next_hs_idx: int,
     fs: int,
-    step_number: int
+    step_number: int,
+    metadata: Metadata = None
 ) -> Dict[str, Any]:
-  
+    
+    time_offset = hs_idx / fs
+    step_timestamp = metadata.start_time + timedelta(seconds=time_offset)
+    
     step_time = (next_hs_idx - hs_idx) / fs
     stance_time = (to_idx - hs_idx) / fs
     swing_time = (next_hs_idx - to_idx) / fs
-    
-    stance_percent = (stance_time / step_time) * 100 if step_time > 0 else 0
-    swing_percent = (swing_time / step_time) * 100 if step_time > 0 else 0
-    
-    cadence = 60.0 / step_time if step_time > 0 else 0
     
     if isinstance(orientations, dict):
         knee_angle_full = orientations['knee_angle']
@@ -172,7 +175,18 @@ def _calculate_single_step_metrics(
     
     knee_curve_normalized = _normalize_to_100_points(knee_angle_step)
     knee_curve_json = json.dumps(knee_curve_normalized)
-  
+
+    knee_ang = orientations['knee_angle'][hs_idx:next_hs_idx]
+    hip_ang = orientations['thigh_pitch'][hs_idx:next_hs_idx]
+
+    thigh_pitch_step = thigh_pitch_full[hs_idx:next_hs_idx]
+    if len(thigh_pitch_step) > 0:
+        thigh_flexion_max = float(np.max(thigh_pitch_step))
+        thigh_extension_min = float(np.min(thigh_pitch_step))
+    else:
+        thigh_flexion_max = thigh_extension_min = 0.0
+
+
     gyro_shank_sagittal = filtered_data['gyro2'][hs_idx:next_hs_idx, 1] 
     peak_angular_velocity = float(np.max(np.abs(gyro_shank_sagittal))) if len(gyro_shank_sagittal) > 0 else 0.0
     
@@ -180,16 +194,19 @@ def _calculate_single_step_metrics(
     impact_force = float(np.max(np.abs(acc_vertical))) if len(acc_vertical) > 0 else 0.0
     
     metrics = {
+        'session_id': metadata.session_id if metadata else None,
+        'timestamp': step_timestamp.isoformat(),
+        'hs_idx': hs_idx,
+        'next_hs_idx': next_hs_idx,
         'step_number': step_number,
-        'hs_idx': int(hs_idx),
-        'to_idx': int(to_idx),
-        'next_hs_idx': int(next_hs_idx),
         'step_time': round(step_time, 4),
+        'knee_angle': round(float(np.mean(knee_ang)), 2),
+        'hip_angle': round(float(np.mean(hip_ang)), 2),
+        "hip_flexion_max": round(thigh_flexion_max, 2),
+        "hip_extension_min": round(thigh_extension_min, 2),
         'stance_time': round(stance_time, 4),
         'swing_time': round(swing_time, 4),
-        'stance_percent': round(stance_percent, 2),
-        'swing_percent': round(swing_percent, 2),
-        'cadence': round(cadence, 2),
+        'stance_swing_ratio': round(stance_time / swing_time, 3) if swing_time > 0 else 0,
         'knee_flexion_max': round(knee_flexion_max, 2),
         'knee_extension_min': round(knee_extension_min, 2),
         'knee_rom': round(knee_rom, 2),

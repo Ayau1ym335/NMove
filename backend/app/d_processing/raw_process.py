@@ -1,8 +1,9 @@
 import numpy as np
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional
 from dataclasses import dataclass, field
 import json
 import os
+import datetime
 
 from calibration import SensorCalibration, Calibrator
 from lowp_f import prefiltration, Filter 
@@ -12,6 +13,16 @@ from .quaternion import Quaternion
 from detect_act import ActivityDetector
 from .step_pro import calculate_step_metrics
 from .session_pro import SessionSummary
+
+@dataclass
+class Metadata:
+    start_time: datetime
+    user_notes: Optional[str] = None
+    is_baseline: bool = False
+    user_id: Optional[int] = None
+    device_id: Optional[int] = None
+    session_id: Optional[int] = None
+    height: float
 
 def unpack_bin(file_path):
     dt = np.dtype([
@@ -71,7 +82,7 @@ class GaitAnalysisOrchestrator:
         self.madgwick_thigh = MadgwickAHRS(sampleperiod=self.dt, beta=0.1)
         self.madgwick_shank = MadgwickAHRS(sampleperiod=self.dt, beta=0.1)
     
-    def process_session(self, raw_data: np.ndarray):
+    def process_session(self, raw_data: np.ndarray, metadata):
         device_id = os.path.splitext(raw_data)[0]
         try:
             unpacked = self.unpacking(raw_data)
@@ -117,7 +128,7 @@ class GaitAnalysisOrchestrator:
             return ' Have an error: {e}'
         
         try:
-            session_summary = self.session.calculate_session_summary(metrics_list, orientations, metadata)
+            session_summary = self.session.calculate_session_summary(metrics_list, orientations, activities, metadata)
         except Exception as e:
             return ' Have an error: {e}'
 

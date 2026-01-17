@@ -9,6 +9,7 @@ import enum
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 import os
 from dotenv import load_dotenv
+from sqlalchemy.dialects.postgresql import JSONB
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -124,7 +125,6 @@ class Users(Base):
     medical_reports = relationship("MedicalReport", back_populates="user", cascade="all, delete-orphan")
     injuries = relationship("Injury",back_populates="user",cascade="all, delete-orphan",uselist=False)
 
-
     __table_args__ = (
         CheckConstraint("email LIKE '%@%'", name="check_email_format"),
     )
@@ -213,7 +213,7 @@ class Devices(Base):
     __tablename__ = "devices"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
-    device_serial = Column(String(50), unique=True, nullable=False)
+    device_id = Column(String(50), unique=True, nullable=False)
     placement = Column(Integer, nullable=False)
     side = Column(SQLEnum(SideEnum), nullable=False)
 
@@ -224,11 +224,10 @@ class WalkingSessions(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
     start_time = Column(DateTime, nullable=False, index=True)
-    end_time = Column(DateTime)
     duration = Column(Float, comment="Длительность в секундах")
-
+    
     status = Column(SQLEnum(SessionStatus), nullable=False, default=SessionStatus.STOPPED)
-    activity_type = Column(SQLEnum(ActivityType), nullable=False, default=ActivityType.UNKNOWN )
+    activity_type = Column(JSONB, nullable=False, default=list)
     is_baseline = Column(Boolean, default=False, nullable=False)
     is_processed = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
@@ -262,14 +261,21 @@ class WalkingSessions(Base):
     step_time_variability = Column(Float, comment="CV% времени шага")
     knee_angle_variability = Column(Float, comment="CV% угла колена")
     stance_time_variability = Column(Float, comment="CV% времени опоры")
+    swing_time_variability = Column(Float, comment="CV% времени маха")
 
     # Orientation (avg from Madgwick)
     avg_roll = Column(Float)
     avg_pitch = Column(Float)
     avg_yaw = Column(Float)
+    
+    # Clinical Metrics
+    stride_length_variability = Column(Float, comment="Вариабельность длины шага (%)")
+    double_support_time = Column(Float, comment="Время двойной опоры (сек)")
+    avg_impact_force = Column(Float, comment="Средняя сила удара (м/с²)")
+    avg_peak_angular_velocity = Column(Float, comment="Средняя пиковая угловая скорость (град/сек)")
+
 
     user = relationship("Users", back_populates="walking_sessions")
-    raw_data = relationship("RawData", back_populates="session", cascade="all, delete-orphan")
     step_metrics = relationship("StepMetrics", back_populates="session", cascade="all, delete-orphan")
 
 class StepMetrics(Base):
@@ -287,7 +293,6 @@ class StepMetrics(Base):
     session_id = Column(Integer, ForeignKey("walking_sessions.id", ondelete="CASCADE"), index=True, nullable=False)
     timestamp = Column(DateTime,default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     step_number = Column(Integer, comment="Номер шага в сессии")
-    side = Column(SQLEnum(SideEnum), default= SideEnum.RIGHT)
 
     roll = Column(Float, comment="Крен (градусы)")
     pitch = Column(Float, comment="Тангаж (градусы)")
@@ -295,18 +300,22 @@ class StepMetrics(Base):
 
     knee_angle = Column(Float, comment="Угол колена (градусы)")
     hip_angle = Column(Float, comment="Угол бедра (градусы)")
-    ankle_angle = Column(Float, comment="Угол голеностопа (градусы)")
 
     # Temporal Metrics
     stance_time = Column(Float, comment="Время опоры (сек)")
     swing_time = Column(Float, comment="Время маха (сек)")
+    stance_swing_ratio = Column(Float, comment="Соотношение опоры и маха")
     step_time = Column(Float, comment="Время шага (сек)")
 
     knee_flexion_max = Column(Float)
     knee_extension_min = Column(Float)
     knee_rom = Column(Float)
 
-    trunk_lean_at_hs = Column(Float)
+    hip_flexion_max = Column(Float)
+    hip_extension_min = Column(Float)
+
+    peak_angular_velocity = Column(Float, comment="Пиковая угловая скорость (град/сек)")
+    impact_force = Column(Float, comment="Сила удара (м/с²)")
     knee_curve_json = Column(JSON, comment="100 normalized points of the knee angle")
 
     session = relationship("WalkingSessions", back_populates="step_metrics")
@@ -450,12 +459,6 @@ async def setup_retention_policies(conn):
         ))
     except Exception as e:
         print(f"Retention policy warning: {e}")
-
-
-async def drop_all_tables():
-    async with engine.connect() as conn:
-        async with conn.begin():
-            await conn.run_sync(Base.metadata.drop_all)
 
 async def main():
     await init_database()
