@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from scipy import signal
 from enum import Enum
 from .detect_act import ActivityType
+from .dclass import ActivitySegment, FilterConfig
 
 def prefiltration(data: np.ndarray, cutoff: float = 20.0, fs: float = 125.0): 
     order = 4  
@@ -14,34 +15,6 @@ def prefiltration(data: np.ndarray, cutoff: float = 20.0, fs: float = 125.0):
             normal_cutoff = 0.99
     b, a = butter(order, normal_cutoff, btype='lowpass')
     return filtfilt(b, a, data, axis=0)
-
-@dataclass
-class ActivitySegment:
-    activity_type: ActivityType
-    start_time: float
-    end_time: float
-    confidence: float = 1.0
-
-
-@dataclass
-class FilterConfig:
-    cutoff_frequencies: Dict[ActivityType, float] = None
-    filter_order: int = 4  
-    transition_duration: float = 0.5  
-    transition_type: str = "cosine"  
-    sampling_rate: int = 125 
-    
-    def __post_init__(self):
-        if self.cutoff_frequencies is None:
-            self.cutoff_frequencies = {
-                ActivityType.STANDING: 2.0, 
-                ActivityType.WALKING: 6.0,  
-                ActivityType.STAIRS: 7.0,     
-                ActivityType.RUNNING: 12.0,
-                ActivityType.JUMPING: 15.0,  
-                ActivityType.UNKNOWN: 8.0
-            }
-
 
 class Filter:
     def __init__(self, config: Optional[FilterConfig] = None):

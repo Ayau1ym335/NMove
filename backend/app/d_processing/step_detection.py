@@ -2,45 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from scipy import signal
-
-@dataclass
-class GaitCycle:
-    def to_dict(self) -> Dict:
-        return {
-            'hs': self.hs_idx,
-            'to': self.to_idx,
-            'next_hs': self.next_hs_idx,
-            'ms': self.ms_idx,
-            'duration': self.duration,
-            'stride_time': self.stride_time,
-            'stance_time': self.stance_time,
-            'swing_time': self.swing_time,
-            'cadence': self.cadence
-        }
-
-@dataclass
-class DetectorConfig:
-    sampling_rate: int = 125
-    min_step_duration: float = 0.5  
-    max_step_duration: float = 2.5 
-    
-    ms_peak_height_factor: float = 1.5  
-    ms_peak_prominence_factor: float = 0.5 
-    ms_peak_distance: Optional[int] = None 
-
-    hs_search_window: float = 0.3
-    hs_acc_threshold_factor: float = 0.3  
-    
-    to_search_window: float = 0.4
-    to_gyro_prominence_factor: float = 0.2 
-    
-    enable_outlier_removal: bool = True
-    outlier_std_threshold: float = 2.5  
-    
-    def __post_init__(self):
-        if self.ms_peak_distance is None:
-            self.ms_peak_distance = int(self.min_step_duration * self.sampling_rate)
-
+from .dclass import GaitCycle, DetectorConfig
 
 class StepDetector:
     def __init__(self, config: Optional[DetectorConfig] = None):

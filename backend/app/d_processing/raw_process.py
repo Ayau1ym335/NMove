@@ -5,36 +5,16 @@ import json
 import os
 import datetime
 
-from calibration import SensorCalibration, Calibrator
-from lowp_f import prefiltration, Filter 
-from madgwick import MadgwickAHRS
-from step_detection import StepDetector
+from .unpacking import unpack_bin
+from .imu_calibration import Calibrator
+from .lowp_f import prefiltration, Filter 
+from .madgwick import MadgwickAHRS
+from .step_detection import StepDetector
 from .quaternion import Quaternion
-from detect_act import ActivityDetector
+from .detect_act import ActivityDetector
 from .step_pro import calculate_step_metrics
-from .session_pro import SessionSummary
-
-@dataclass
-class Metadata:
-    start_time: datetime
-    user_notes: Optional[str] = None
-    is_baseline: bool = False
-    user_id: Optional[int] = None
-    device_id: Optional[int] = None
-    session_id: Optional[int] = None
-    height: float
-
-def unpack_bin(file_path):
-    dt = np.dtype([
-        ('header', 'u1'),
-        ('timestamp', 'f8'),
-        ('acc1',      'f4', (3,)), # x, y, z thigh 
-        ('gyro1',     'f4', (3,)), # x, y, z
-        ('acc2',      'f4', (3,)), # x, y, z shin
-        ('gyro2',     'f4', (3,))  # x, y, z
-    ])
-    data = np.fromfile(file_path, dtype=dt)
-    return data
+from .session_pro import calculate_session_summary
+from .dclass import Metadata
 
 def quaternion_to_euler(q: np.ndarray) -> np.ndarray:
         w, x, y, z = q
@@ -65,7 +45,7 @@ class GaitAnalysisOrchestrator:
         filter=Filter(),
         event_detector=StepDetector(),
         calculate_step_metrics= None,
-        session = SessionSummary(),
+        session = None,
         sampling_rate: int = 125
     ):
         self.unpacking = unpack_bin

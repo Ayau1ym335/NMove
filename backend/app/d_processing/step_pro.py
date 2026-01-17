@@ -1,20 +1,14 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 import numpy as np
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from scipy.interpolate import interp1d
 from dataclasses import dataclass
 import logging
-from .raw_process import Metadata
+from .dclass import Metadata, StepEvent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('GaitMetrics')
-
-@dataclass
-class StepEvent:
-    hs_idx: int  
-    to_idx: int 
-    next_hs_idx: int 
 
 def calculate_step_metrics(
     filtered_data: np.ndarray,

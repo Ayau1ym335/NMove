@@ -1,8 +1,8 @@
 import numpy as np
 from typing import List, Dict, Optional, Any
 import logging
-from data.tables import SessionStatus
-from .raw_process import Metadata
+from app.data.tables import SessionStatus
+from .dclass import Metadata
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('SessionSummary')

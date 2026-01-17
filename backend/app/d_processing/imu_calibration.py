@@ -1,37 +1,11 @@
-from raw_process import unpack_bin
+from .unpacking import unpack_bin
 import numpy as np
 import json
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import datetime
 import os
-
-@dataclass
-class SensorCalibration:
-    acc_bias: np.ndarray 
-    acc_scale: np.ndarray  
-    gyro_bias: np.ndarray 
-    gyro_scale: np.ndarray = None
-    rotation_matrix: Optional[np.ndarray] = None 
-    
-    def to_dict(self) -> dict:
-        return {
-            'acc_bias': self.acc_bias.tolist(),
-            'acc_scale': self.acc_scale.tolist(),
-            'gyro_bias': self.gyro_bias.tolist(),
-            'rotation_matrix': self.rotation_matrix.tolist() if self.rotation_matrix is not None else None
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> 'SensorCalibration':
-        rotation = np.array(data['rotation_matrix']) if data.get('rotation_matrix') is not None else None
-        return cls(
-            acc_bias=np.array(data['acc_bias'], dtype=np.float32),
-            acc_scale=np.array(data['acc_scale'], dtype=np.float32),
-            gyro_bias=np.array(data['gyro_bias'], dtype=np.float32),
-            rotation_matrix=rotation
-        )
-
+from .dclass import SensorCalibration
 
 class Calibrator:    
     def __init__(self, storage: str = 'storage/lab_calibrations'):

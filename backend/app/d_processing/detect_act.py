@@ -4,6 +4,7 @@ from enum import Enum
 from typing import List, Tuple, Dict, Optional, Any
 from scipy import signal
 from datetime import datetime
+from .dclass import ActivityFeatures, ActivitySegment, DetectionConfig
 
 class ActivityType(Enum):
     STANDING = "standing"
@@ -12,69 +13,6 @@ class ActivityType(Enum):
     JUMPING = "jumping"
     STAIRS = "stairs"
     UNKNOWN = "unknown"
-
-
-@dataclass
-class ActivityFeatures:
-    sma_thigh: float 
-    sma_shank: float 
-    
-    mag_mean_thigh: float 
-    mag_mean_shank: float 
-    mag_std_thigh: float
-    mag_std_shank: float 
-    mag_ratio: float       
-    
-    cadence: float  
-    spectral_energy_thigh: float 
-    spectral_energy_shank: float
-    dominant_freq_thigh: float  
-    dominant_freq_shank: float 
-    
-    peak_count_shank: int 
-    vertical_variance: float 
-
-
-@dataclass
-class ActivitySegment:
-    activity_type: ActivityType
-    start_time: float 
-    end_time: float  
-    confidence: float  
-    features: Optional[ActivityFeatures] = None
-
-
-@dataclass
-class DetectionConfig:
-    window_size: float = 2.0  
-    window_overlap: float = 0.5 
-    sampling_rate: int = 125
-    
-    standing_sma_max: float = 0.5
-    standing_std_max: float = 0.3
-    
-    walking_sma_min: float = 0.5
-    walking_sma_max: float = 3.0
-    walking_cadence_min: float = 80 
-    walking_cadence_max: float = 140
-    walking_energy_max: float = 50.0
-    
-    running_sma_min: float = 3.0
-    running_cadence_min: float = 140
-    running_energy_min: float = 50.0
-    
-    jumping_peak_threshold: float = 2.5  
-    jumping_peak_count_min: int = 3
-    jumping_vertical_var_min: float = 5.0
-    
-    stairs_mag_ratio_min: float = 1.3
-    stairs_cadence_min: float = 60
-    stairs_cadence_max: float = 100
-    stairs_sma_min: float = 1.0
-    
-    freq_band_low: float = 0.5  
-    freq_band_high: float = 5.0 
-
 
 class ActivityDetector:
     def __init__(self, config: Optional[DetectionConfig] = None):
