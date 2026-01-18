@@ -139,6 +139,7 @@ class Profiles(Base):
 
     have_injury = Column(Boolean, nullable=False, default=False)
     shoe_size = Column(Float, nullable=False, comment="Размер обуви (RU)")
+    leg_length = Column(Float, nullable=False, comment="Длина ноги (см)")
     dominant_leg = Column(SQLEnum(SideEnum), default=SideEnum.RIGHT, comment="Ведущая нога")
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
@@ -232,29 +233,28 @@ class WalkingSessions(Base):
     is_processed = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
 
-    #Basic metrics
+    # Rhythm & Pace
     step_count = Column(Integer)
     cadence = Column(Float, comment="Каденс (шагов/мин)")
     avg_speed = Column(Float, comment="Средняя скорость (м/с)")
+    avg_peak_angular_velocity = Column(Float, comment="Средняя пиковая угловая скорость (град/сек)")
 
-    # Joint Angles - Knee
+    # Joint Mechanics
     knee_angle_mean = Column(Float)
     knee_angle_std = Column(Float)
     knee_angle_max = Column(Float)
     knee_angle_min = Column(Float)
     knee_amplitude = Column(Float, comment="Размах движения колена")
 
-    # Joint Angles - Hip
     hip_angle_mean = Column(Float)
     hip_angle_std = Column(Float)
     hip_angle_max = Column(Float)
     hip_angle_min = Column(Float)
     hip_amplitude = Column(Float)
 
-    # Temporal Metrics
-    avg_stance_time = Column(Float, comment="Среднее время опоры")
-    avg_swing_time = Column(Float, comment="Среднее время маха")
-    stance_swing_ratio = Column(Float)
+    avg_roll = Column(Float)
+    avg_pitch = Column(Float)
+    avg_yaw = Column(Float)
 
     # Variability
     gvi = Column(Float, comment="Gait Variability Index (%)")
@@ -262,21 +262,73 @@ class WalkingSessions(Base):
     knee_angle_variability = Column(Float, comment="CV% угла колена")
     stance_time_variability = Column(Float, comment="CV% времени опоры")
     swing_time_variability = Column(Float, comment="CV% времени маха")
-
-    # Orientation (avg from Madgwick)
-    avg_roll = Column(Float)
-    avg_pitch = Column(Float)
-    avg_yaw = Column(Float)
-    
-    # Clinical Metrics
     stride_length_variability = Column(Float, comment="Вариабельность длины шага (%)")
+    
+    # Symmetry & Phases
+    avg_stance_time = Column(Float, comment="Среднее время опоры")
+    avg_swing_time = Column(Float, comment="Среднее время маха")
+    stance_swing_ratio = Column(Float)
     double_support_time = Column(Float, comment="Время двойной опоры (сек)")
     avg_impact_force = Column(Float, comment="Средняя сила удара (м/с²)")
-    avg_peak_angular_velocity = Column(Float, comment="Средняя пиковая угловая скорость (град/сек)")
-
 
     user = relationship("Users", back_populates="walking_sessions")
     step_metrics = relationship("StepMetrics", back_populates="session", cascade="all, delete-orphan")
+    session = relationship("UserBaseline")
+
+class UserBaseline(Base):
+    __tablename__ = "user_baseline"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    start_time = Column(DateTime, nullable=False, index=True)
+    duration = Column(Float, comment="Длительность в секундах")
+    
+    status = Column(SQLEnum(SessionStatus), nullable=False, default=SessionStatus.STOPPED)
+    activity_type = Column(JSONB, nullable=False, default=list)
+    is_baseline = Column(Boolean, default=False, nullable=False)
+    is_processed = Column(Boolean, default=False, nullable=False)
+    notes = Column(Text, nullable=True, comment="Заметки пользователя о сессии")
+
+    # Rhythm & Pace
+    step_count = Column(Integer)
+    cadence = Column(Float, comment="Каденс (шагов/мин)")
+    avg_speed = Column(Float, comment="Средняя скорость (м/с)")
+    avg_peak_angular_velocity = Column(Float, comment="Средняя пиковая угловая скорость (град/сек)")
+
+    # Joint Mechanics
+    knee_angle_mean = Column(Float)
+    knee_angle_std = Column(Float)
+    knee_angle_max = Column(Float)
+    knee_angle_min = Column(Float)
+    knee_amplitude = Column(Float, comment="Размах движения колена")
+
+    hip_angle_mean = Column(Float)
+    hip_angle_std = Column(Float)
+    hip_angle_max = Column(Float)
+    hip_angle_min = Column(Float)
+    hip_amplitude = Column(Float)
+
+    avg_roll = Column(Float)
+    avg_pitch = Column(Float)
+    avg_yaw = Column(Float)
+
+    # Variability
+    gvi = Column(Float, comment="Gait Variability Index (%)")
+    step_time_variability = Column(Float, comment="CV% времени шага")
+    knee_angle_variability = Column(Float, comment="CV% угла колена")
+    stance_time_variability = Column(Float, comment="CV% времени опоры")
+    swing_time_variability = Column(Float, comment="CV% времени маха")
+    stride_length_variability = Column(Float, comment="Вариабельность длины шага (%)")
+    
+    # Symmetry & Phases
+    avg_stance_time = Column(Float, comment="Среднее время опоры")
+    avg_swing_time = Column(Float, comment="Среднее время маха")
+    stance_swing_ratio = Column(Float)
+    double_support_time = Column(Float, comment="Время двойной опоры (сек)")
+    avg_impact_force = Column(Float, comment="Средняя сила удара (м/с²)")
+
+    user = relationship("Users", back_populates="walking_sessions")
+    step_metrics = relationship("StepMetrics", back_populates="session", cascade="all, delete-orphan")
+    session = relationship("WalkingSessions")
 
 class StepMetrics(Base):
     __tablename__ = "step_metrics"

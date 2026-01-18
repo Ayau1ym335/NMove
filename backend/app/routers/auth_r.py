@@ -61,6 +61,7 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         weight=user_data.weight,
         have_injury=user_data.have_injury,
         shoe_size=user_data.shoe_size,
+        leg_length=user_data.leg_length,
         dominant_leg=user_data.dominant_leg
     )
   

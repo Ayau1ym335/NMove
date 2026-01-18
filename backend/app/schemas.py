@@ -46,6 +46,11 @@ class UserRegister(UserBase):
         ge=10, le=50, 
         description="Размер обуви (RU)"
     )
+    leg_length: float = Field(
+        ...,
+        ge=10, le=150,
+        description="Длина ноги (см)"
+    )
     dominant_leg: SideEnum = Field(
         default=SideEnum.RIGHT, 
         description="Ведущая нога"
