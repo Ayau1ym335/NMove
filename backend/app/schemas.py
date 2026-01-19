@@ -16,6 +16,8 @@ class UserLogin(BaseModel):
         description="Пароль пользователя (минимум 8 символов)"
     )
 
+    model_config = ConfigDict(from_attributes=True)
+
 class UserRegister(UserBase):
     name: str
     email: EmailStr
@@ -120,8 +122,6 @@ class DoctorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class SessionCreate(BaseModel):
-    #POST /api/sessions/start
-    activity_type: ActivityType = Field(default=ActivityType.WALKING)
     is_baseline: bool = False
     notes: Optional[str] = Field(
         None,
@@ -129,8 +129,9 @@ class SessionCreate(BaseModel):
         description="Заметки пользователя о сессии"
     )
 
+    model_config = ConfigDict(from_attributes=True)
+
 class SessionStopResponse(BaseModel):
-    """Ответ при остановке сессии"""
     session_id: int
     start_time: datetime
     end_time: datetime
@@ -139,19 +140,16 @@ class SessionStopResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class SessionListItem(BaseModel):
-    """Краткая информация о сессии для списка"""
     session_id: int
-    start_time: datetime
-    end_time:datetime
     duration: float
     status: SessionStatus
-    activity_type: ActivityType
     is_baseline: bool
 
     model_config = ConfigDict(from_attributes=True)
    
 class SessionMetrics(BaseModel):
-    """Метрики сессии после обработки"""
+    model_config = ConfigDict(from_attributes=True)
+
     step_count: int
     cadence: float
     avg_speed: float
@@ -183,104 +181,15 @@ class SessionMetrics(BaseModel):
     avg_pitch: float
 
 class SessionResponse(BaseModel):
-    """Детальная информация о сессии GET /api/sessions/{id}"""
     session_id: int
     user_id: int
-    start_time: datetime
-    end_time: datetime
-    duration: float
     status: SessionStatus
-    activity_type: ActivityType
     is_baseline: bool
     is_processed: bool
     notes: Optional[str]
-    metrics: Optional[SessionMetrics] = None
+    metrics: Optional[SessionMetrics]
     
     model_config = ConfigDict(from_attributes=True)
-
-class RawDataPoint(BaseModel):
-    device_pos: Literal[0, 1] #0 thigh 1 shin
-    timestamp: datetime
-    a_x: float 
-    a_y: float  
-    a_z: float
-    g_x: float 
-    g_y: float 
-    g_z: float 
-    @field_validator('a_x', 'a_y', 'a_z')
-    @classmethod
-    def validate_acceleration(cls, v: float) -> float:
-        if abs(v) > 490: 
-            raise ValueError(
-                f"Acceleration {v} m/s² is out of valid range (±490 m/s²). "
-                "Check sensor calibration or data corruption."
-            )
-        return v
-    
-    @field_validator('g_x', 'g_y', 'g_z')
-    @classmethod
-    def validate_gyroscope(cls, v: float) -> float:
-        if abs(v) > 2000:
-            raise ValueError(
-                f"Gyroscope {v} deg/s is out of valid range (±2000 deg/s). "
-                "Check sensor configuration."
-            )
-        return v
-    
-class RawDataUpload(BaseModel):
-    """
-    POST /api/sessions/{id}/upload
-    """
-    session_id: int
-    samples: List[RawDataPoint] = Field(
-        ...,
-        min_length=1,
-        max_length=10000,
-    )
-
-    @field_validator('samples')
-    @classmethod
-    def validate_samples_consistency(cls, samples: List[RawDataPoint]) -> List[RawDataPoint]:
-        timestamps = [s.timestamp for s in samples]
-        if timestamps != sorted(timestamps):
-            raise ValueError(
-                "Timestamps must be in chronological order. "
-                "Sort samples by timestamp before uploading."
-            )
-        if len(timestamps) != len(set(timestamps)):
-            raise ValueError(
-                "Duplicate timestamps detected. "
-                "Each sample must have a unique timestamp."
-            )
-        
-        time_range = (timestamps[-1] - timestamps[0]).total_seconds()
-        if time_range > 3600:  
-            raise ValueError(
-                f"Time range {time_range}s exceeds maximum (3600s). "
-                "Split data into smaller batches."
-            )
-        
-        if time_range < 0:
-            raise ValueError(
-                "Invalid time range: end timestamp is before start timestamp"
-            )
-        
-        return samples
-
-    @field_validator('samples')
-    @classmethod
-    def validate_placement(cls, samples: List[RawDataPoint]) -> List[RawDataPoint]:
-        placements = set(s.device_pos for s in samples)
-        if len(placements) == 1:
-            import warnings
-            placement_name = "thigh" if 0 in placements else "shin"
-            warnings.warn(
-                f"Data contains only {placement_name} sensor readings. "
-                "For better analysis, include data from both sensors.",
-                UserWarning
-            )
-        
-        return samples
 
 class UploadResponse(BaseModel):
     status: str = Field(default="uploaded")

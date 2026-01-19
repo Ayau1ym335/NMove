@@ -62,21 +62,28 @@ class GaitAnalysisOrchestrator:
         self.madgwick_thigh = MadgwickAHRS(sampleperiod=self.dt, beta=0.1)
         self.madgwick_shank = MadgwickAHRS(sampleperiod=self.dt, beta=0.1)
     
-    def process_session(self, raw_data: np.ndarray, metadata):
-        device_id = os.path.splitext(raw_data)[0]
+    def process_session(self, raw_data, metadata, device_id: str = None):
+        if device_id is None:
+            if isinstance(raw_data, str):
+                device_id = os.path.splitext(os.path.basename(raw_data))[0]
+            else:
+                device_id = "unknown_device"
+
         try:
-            unpacked = self.unpacking(raw_data)
+            if isinstance(raw_data, str):
+                unpacked = self.unpacking(raw_data)
+            else:
+                unpacked = raw_data
         except Exception as e:
             unpacked = raw_data
-            return ' Have an error: {e}'
-        
+
         try:
             self.calibrator.load(device_id)
             self.calibrator.align_to_gravity(unpacked)
             calibrated = self.calibrator.apply(unpacked)
         except Exception as e:
             calibrated = unpacked
-            return ' Have an error: {e}'
+            return f' Have an error in calibration: {e}'
         
         try:
             prefiltrated = self.prefiltration(calibrated)
@@ -112,7 +119,7 @@ class GaitAnalysisOrchestrator:
         except Exception as e:
             return ' Have an error: {e}'
 
-        
+        return session_summary
 
     def orientation(self, filtrated: np.ndarray):
         n = len(filtrated)

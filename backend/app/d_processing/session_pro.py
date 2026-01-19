@@ -3,6 +3,7 @@ from typing import List, Dict, Optional, Any
 import logging
 from app.data.tables import SessionStatus
 from .dclass import Metadata
+from datetime import timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('SessionSummary')
@@ -10,21 +11,33 @@ logger = logging.getLogger('SessionSummary')
 def calculate_session_summary(
     metrics_list: List[Dict[str, Any]],
     orientation: np.ndarray,
-    activities: List[Dict[str, Any]],
+    activities,
     session_metadata: Metadata
 ) -> Dict[str, Any]:
     if not metrics_list or len(metrics_list) == 0:
         logger.warning("Empty metrics list - no steps detected.")
         return None
-    basic_stats = _calculate_basic_temporal_stats(metrics_list)
-    kinematic_stats = _calculate_kinematic_aggregation(metrics_list)
-    variability_stats = _calculate_variability_metrics(metrics_list)
+
+    filtering_result = _filter_artifacts(metrics_list)
+    clean_metrics = filtering_result['clean_data']
+    
+    if not clean_metrics:
+        logger.warning("All steps were filtered out as artifacts!")
+        return None
+
+    basic_stats = _calculate_basic_temporal_stats(clean_metrics) 
+    kinematic_stats = _calculate_kinematic_aggregation(clean_metrics)
+    variability_stats = _calculate_variability_metrics(clean_metrics)
     gvi = _calculate_gvi(variability_stats)
     orientation_stats = _calculate_global_orientation(orientation)
-    clinical_stats = _calculate_clinical_metrics(metrics_list)
-    avg_speed = _calculate_speed(metrics_list, session_metadata)
+    clinical_stats = _calculate_clinical_metrics(clean_metrics)
+    avg_speed = _calculate_speed(clean_metrics, session_metadata)
+   
     summary = {
         'start_time': session_metadata.start_time.isoformat(),
+        'end_time': (session_metadata.start_time + timedelta(seconds=basic_stats['duration'])).isoformat(),
+        'duration': basic_stats['duration'],
+
         'user_notes': session_metadata.user_notes,
         'is_baseline': session_metadata.is_baseline,
         'user_id': session_metadata.user_id,
@@ -32,8 +45,7 @@ def calculate_session_summary(
         'status': SessionStatus.COMPLETED.value,
         'activity_type': activities,
   -
-        'step_count': basic_stats['step_count'],
-        'duration': basic_stats['duration'],
+        'step_count': len(clean_metrics),
         'cadence': basic_stats['cadence'],
         'avg_speed': avg_speed['avg_speed'],
         'avg_step_time': basic_stats['avg_step_time'],
@@ -300,3 +312,46 @@ def _calculate_speed(metrics_list: List[Dict], metadata: Metadata = None):
     avg_speed = total_distance / duration if duration > 0 else 0.0
 
     return {'avg_speed': round(avg_speed, 2)}
+
+
+def _filter_artifacts(metrics_list: List[Dict]) -> Dict:
+    if not metrics_list:
+        return {'clean_data': [], 'excluded_count': 0, 'stops_detected': 0}
+
+    total_steps = len(metrics_list)
+    valid_steps = metrics_list
+    
+    valid_steps = [
+        m for m in valid_steps 
+        if 0.25 <= m.get('step_time', 0) <= 2.5
+    ]
+    
+    stops_detected = total_steps - len(valid_steps)
+    if len(valid_steps) < 10:
+        return {
+            'clean_data': valid_steps, 
+            'excluded_count': stops_detected, 
+            'stops_detected': stops_detected
+        }
+    
+    step_times = np.array([m['step_time'] for m in valid_steps])
+    
+    Q1 = np.percentile(step_times, 25)
+    Q3 = np.percentile(step_times, 75)
+    IQR = Q3 - Q1
+    
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    
+    clean_data = [
+        m for m in valid_steps 
+        if lower_bound <= m['step_time'] <= upper_bound
+    ]
+    
+    excluded_count = total_steps - len(clean_data)
+    
+    return {
+        'clean_data': clean_data,          
+        'excluded_count': excluded_count,  
+        'stops_detected': stops_detected
+    }
