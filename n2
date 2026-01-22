@@ -1,0 +1,463 @@
+import numpy as np
+from typing import Dict, List, Tuple, Any, Optional
+import json
+from dataclasses import dataclass
+from enum import Enum
+
+
+class ClinicalCategory(Enum):
+    """Enumeration of clinical categories for gait analysis."""
+    HEALTHY = "Healthy"
+    TRAUMA = "Trauma"
+    ASYMMETRY = "Asymmetry"
+    NEURO_RISK = "Neuro Risk"
+    TECH_NOISE = "Tech Noise"
+
+
+@dataclass
+class MetricDeviation:
+    """Represents a deviation in a specific metric."""
+    metric_name: str
+    patient_value: float
+    reference_value: float
+    deviation: float
+    deviation_percentage: float
+    weight: float
+
+
+class StridexMathEngine:
+    """
+    Deterministic mathematical core for Stridex gait analysis.
+    
+    This engine performs weighted vector similarity comparison between patient
+    gait data and a verified clinical reference database. It is designed to be
+    completely deterministic to avoid AI hallucinations and ensure medical-grade
+    accuracy.
+    
+    Attributes:
+        reference_database (List[Dict]): Verified clinical reference patterns
+        metric_weights (Dict[str, float]): Importance weights for each metric
+    """
+    
+    def __init__(self, reference_database: Optional[List[Dict]] = None):
+        """
+        Initialize the Stridex Mathematical Engine.
+        
+        Args:
+            reference_database: List of clinical reference patterns. If None,
+                              uses built-in simulated database.
+        """
+        self.reference_database = reference_database or self._load_simulated_database()
+        self.metric_weights = self._initialize_metric_weights()
+        
+    def _initialize_metric_weights(self) -> Dict[str, float]:
+        """
+        Initialize importance weights for each metric.
+        
+        Higher weights indicate metrics that are more clinically significant
+        for pattern matching and diagnosis.
+        
+        Returns:
+            Dictionary mapping metric paths to their weights (0.0 - 1.0)
+        """
+        return {
+            # Variability metrics (highest weight for fall risk detection)
+            "session_metrics.variability.gvi": 1.0,
+            "session_metrics.variability.step_time_variability": 0.9,
+            "session_metrics.variability.knee_angle_variability": 0.85,
+            
+            # Joint mechanics (critical for trauma detection)
+            "session_metrics.joint_mechanics.knee_angle.mean": 0.95,
+            "session_metrics.joint_mechanics.knee_angle.amplitude": 0.9,
+            "session_metrics.joint_mechanics.knee_angle.max": 0.85,
+            "session_metrics.joint_mechanics.knee_angle.min": 0.85,
+            "session_metrics.joint_mechanics.knee_angle.std": 0.8,
+            
+            # Orientation (important for asymmetry)
+            "session_metrics.joint_mechanics.orientation.avg_roll": 0.75,
+            "session_metrics.joint_mechanics.orientation.avg_pitch": 0.75,
+            "session_metrics.joint_mechanics.orientation.avg_yaw": 0.7,
+            
+            # Rhythm and pace
+            "session_metrics.rhythm_pace.cadence": 0.8,
+            "session_metrics.rhythm_pace.avg_speed": 0.85,
+            "session_metrics.rhythm_pace.avg_peak_angular_velocity": 0.95,
+            
+            # Symmetry and phases
+            "session_metrics.symmetry_phases.stance_swing_ratio": 0.9,
+            "session_metrics.symmetry_phases.avg_stance_time": 0.8,
+            "session_metrics.symmetry_phases.avg_swing_time": 0.8,
+            "session_metrics.symmetry_phases.avg_impact_force": 0.85,
+            
+            # User profile (lower weight, context only)
+            "user_profile.age": 0.3,
+            "user_profile.weight": 0.3,
+            "user_profile.height": 0.3,
+        }
+    
+    def _extract_nested_value(self, data: Dict, path: str) -> Optional[float]:
+        """
+        Extract a value from nested dictionary using dot notation path.
+        
+        Args:
+            data: Dictionary to extract from
+            path: Dot-separated path (e.g., "session_metrics.variability.gvi")
+            
+        Returns:
+            Extracted value or None if path doesn't exist
+        """
+        keys = path.split('.')
+        value = data
+        
+        try:
+            for key in keys:
+                value = value[key]
+            return float(value) if value is not None else None
+        except (KeyError, TypeError, ValueError):
+            return None
+    
+    def _calculate_weighted_euclidean_distance(
+        self, 
+        patient_data: Dict, 
+        reference_data: Dict
+    ) -> Tuple[float, List[MetricDeviation]]:
+        """
+        Calculate weighted Euclidean distance between patient and reference.
+        
+        This is the core mathematical algorithm. It computes a distance metric
+        that accounts for the clinical importance of each parameter.
+        
+        Args:
+            patient_data: Patient gait metrics
+            reference_data: Reference pattern metrics
+            
+        Returns:
+            Tuple of (total_distance, list of deviations)
+        """
+        squared_weighted_distances = []
+        deviations = []
+        total_weight = 0.0
+        
+        for metric_path, weight in self.metric_weights.items():
+            patient_value = self._extract_nested_value(patient_data, metric_path)
+            reference_value = self._extract_nested_value(reference_data, metric_path)
+            
+            # Skip if either value is missing
+            if patient_value is None or reference_value is None:
+                continue
+            
+            # Calculate deviation
+            deviation = patient_value - reference_value
+            
+            # Handle division by zero for percentage calculation
+            if reference_value != 0:
+                deviation_pct = (deviation / abs(reference_value)) * 100
+            else:
+                deviation_pct = 0.0 if deviation == 0 else float('inf')
+            
+            # Store deviation information
+            deviations.append(MetricDeviation(
+                metric_name=metric_path,
+                patient_value=patient_value,
+                reference_value=reference_value,
+                deviation=deviation,
+                deviation_percentage=deviation_pct,
+                weight=weight
+            ))
+            
+            # Weighted squared distance
+            squared_weighted_distances.append(weight * (deviation ** 2))
+            total_weight += weight
+        
+        # Calculate normalized distance
+        if total_weight > 0:
+            distance = np.sqrt(sum(squared_weighted_distances) / total_weight)
+        else:
+            distance = float('inf')
+        
+        return distance, deviations
+    
+    def _distance_to_similarity(self, distance: float, max_distance: float = 100.0) -> float:
+        """
+        Convert distance metric to similarity percentage (0-100%).
+        
+        Args:
+            distance: Calculated distance
+            max_distance: Maximum expected distance for normalization
+            
+        Returns:
+            Similarity score as percentage
+        """
+        # Normalize and invert: closer distance = higher similarity
+        if distance == float('inf'):
+            return 0.0
+        
+        similarity = max(0.0, 100.0 * (1.0 - min(distance / max_distance, 1.0)))
+        return round(similarity, 2)
+    
+    def analyze_patient(self, patient_data: Dict) -> Dict[str, Any]:
+        """
+        Analyze patient data against reference database.
+        
+        This is the main API method for Layer 1. It performs deterministic
+        pattern matching and returns structured results for Layer 2 (LLM).
+        
+        Args:
+            patient_data: Patient gait measurement data
+            
+        Returns:
+            Dictionary containing:
+                - best_match_id: ID of closest reference
+                - similarity_score: Similarity percentage (0-100)
+                - deviations: List of significant metric deviations
+                - clinical_category: Matched category
+                - reference_description: Description of matched reference
+                - all_matches: Top 3 matches for context
+        """
+        if not self.reference_database:
+            raise ValueError("Reference database is empty")
+        
+        best_match = None
+        best_distance = float('inf')
+        best_deviations = []
+        all_matches = []
+        
+        # Compare against all references
+        for reference in self.reference_database:
+            distance, deviations = self._calculate_weighted_euclidean_distance(
+                patient_data, 
+                reference
+            )
+            
+            similarity = self._distance_to_similarity(distance)
+            
+            all_matches.append({
+                'reference_id': reference['reference_id'],
+                'similarity_score': similarity,
+                'distance': distance,
+                'category': reference['clinical_category']
+            })
+            
+            if distance < best_distance:
+                best_distance = distance
+                best_match = reference
+                best_deviations = deviations
+        
+        # Sort all matches by similarity
+        all_matches.sort(key=lambda x: x['similarity_score'], reverse=True)
+        
+        # Format deviations for output (only significant ones)
+        significant_deviations = [
+            {
+                'metric': dev.metric_name.split('.')[-1],
+                'full_path': dev.metric_name,
+                'patient_value': round(dev.patient_value, 2),
+                'reference_value': round(dev.reference_value, 2),
+                'deviation': round(dev.deviation, 2),
+                'deviation_percentage': round(dev.deviation_percentage, 2),
+                'weight': dev.weight,
+                'description': f"{dev.metric_name.split('.')[-1]} is {dev.deviation:+.1f} units ({dev.deviation_percentage:+.1f}%) from target"
+            }
+            for dev in sorted(best_deviations, key=lambda x: abs(x.deviation_percentage), reverse=True)
+            if abs(dev.deviation_percentage) > 5.0  # Only show deviations > 5%
+        ][:10]  # Top 10 most significant deviations
+        
+        return {
+            'best_match_id': best_match['reference_id'],
+            'similarity_score': self._distance_to_similarity(best_distance),
+            'clinical_category': best_match['clinical_category'],
+            'reference_description': best_match.get('description', ''),
+            'clinical_verdict': best_match.get('clinical_verdict', {}),
+            'deviations': significant_deviations,
+            'all_matches': all_matches[:3],  # Top 3 for context
+            'total_references_compared': len(self.reference_database)
+        }
+    
+    def _load_simulated_database(self) -> List[Dict]:
+        """
+        Load simulated reference database with 5 diverse clinical patterns.
+        
+        Returns:
+            List of reference pattern dictionaries
+        """
+        return [
+            # Reference 1: Healthy Adult
+            {
+                "reference_id": "REF_HEALTHY_001",
+                "clinical_category": "Healthy",
+                "description": "Здоровая женщина 28 лет. Нормальная походка. Эталонные показатели.",
+                "user_profile": {
+                    "age": 28, "gender": "FEMALE", "weight": 62.0, "height": 168.0,
+                    "leg_length": 84.0, "dominant_leg": "RIGHT", "placed_leg": "RIGHT",
+                    "injury_info": {"have_injury": False, "pain_level": 0, "is_active": True}
+                },
+                "session_metrics": {
+                    "rhythm_pace": {
+                        "step_count": 150, "cadence": 112.0, "avg_speed": 1.3,
+                        "avg_peak_angular_velocity": 320.0
+                    },
+                    "joint_mechanics": {
+                        "knee_angle": {
+                            "mean": 60.0, "std": 8.5, "max": 78.0, "min": 42.0, "amplitude": 36.0
+                        },
+                        "orientation": {"avg_roll": 0.5, "avg_pitch": -2.1, "avg_yaw": 0.3}
+                    },
+                    "variability": {
+                        "gvi": 3.2, "step_time_variability": 2.1, "knee_angle_variability": 4.5
+                    },
+                    "symmetry_phases": {
+                        "avg_stance_time": 0.64, "avg_swing_time": 0.36, "stance_swing_ratio": 1.78,
+                        "double_support_time": 0.15, "avg_impact_force": 8.5
+                    }
+                },
+                "clinical_verdict": {
+                    "status": "Normal Gait",
+                    "key_anomaly": "None",
+                    "comparison_note": "Все параметры в пределах нормы для здорового взрослого человека."
+                }
+            },
+            
+            # Reference 2: Meniscus Trauma
+            {
+                "reference_id": "REF_TRAUMA_042",
+                "clinical_category": "Trauma",
+                "description": "Мужчина 35 лет. Разрыв медиального мениска правого колена 3 недели назад. Болевой синдром при нагрузке.",
+                "user_profile": {
+                    "age": 35, "gender": "MALE", "weight": 78.0, "height": 180.0,
+                    "leg_length": 92.0, "dominant_leg": "RIGHT", "placed_leg": "RIGHT",
+                    "injury_info": {"have_injury": True, "pain_level": 6, "is_active": False}
+                },
+                "session_metrics": {
+                    "rhythm_pace": {
+                        "step_count": 120, "cadence": 95.0, "avg_speed": 0.9,
+                        "avg_peak_angular_velocity": 280.0
+                    },
+                    "joint_mechanics": {
+                        "knee_angle": {
+                            "mean": 48.0, "std": 12.5, "max": 65.0, "min": 30.0, "amplitude": 35.0
+                        },
+                        "orientation": {"avg_roll": -3.2, "avg_pitch": -5.8, "avg_yaw": 1.2}
+                    },
+                    "variability": {
+                        "gvi": 8.7, "step_time_variability": 7.2, "knee_angle_variability": 15.3
+                    },
+                    "symmetry_phases": {
+                        "avg_stance_time": 0.72, "avg_swing_time": 0.28, "stance_swing_ratio": 2.57,
+                        "double_support_time": 0.22, "avg_impact_force": 6.2
+                    }
+                },
+                "clinical_verdict": {
+                    "status": "Antalgic Gait - Meniscus Injury",
+                    "key_anomaly": "Reduced knee flexion (48° vs 60°), increased stance phase (2.57 vs 1.78)",
+                    "comparison_note": "Пациент избегает полного сгибания колена из-за боли. Увеличенная фаза опоры компенсирует нестабильность."
+                }
+            },
+            
+            # Reference 3: High Fall Risk (Shuffling Gait)
+            {
+                "reference_id": "REF_NEURO_089",
+                "clinical_category": "Neuro Risk",
+                "description": "Женщина 72 года. Паркинсоноподобная походка. Высокий риск падений.",
+                "user_profile": {
+                    "age": 72, "gender": "FEMALE", "weight": 68.0, "height": 162.0,
+                    "leg_length": 79.0, "dominant_leg": "RIGHT", "placed_leg": "RIGHT",
+                    "injury_info": {"have_injury": False, "pain_level": 1, "is_active": False}
+                },
+                "session_metrics": {
+                    "rhythm_pace": {
+                        "step_count": 180, "cadence": 98.0, "avg_speed": 0.7,
+                        "avg_peak_angular_velocity": 210.0
+                    },
+                    "joint_mechanics": {
+                        "knee_angle": {
+                            "mean": 52.0, "std": 15.8, "max": 72.0, "min": 28.0, "amplitude": 44.0
+                        },
+                        "orientation": {"avg_roll": 1.8, "avg_pitch": -8.5, "avg_yaw": 2.5}
+                    },
+                    "variability": {
+                        "gvi": 22.5, "step_time_variability": 18.3, "knee_angle_variability": 28.7
+                    },
+                    "symmetry_phases": {
+                        "avg_stance_time": 0.68, "avg_swing_time": 0.32, "stance_swing_ratio": 2.13,
+                        "double_support_time": 0.26, "avg_impact_force": 5.8
+                    }
+                },
+                "clinical_verdict": {
+                    "status": "High Fall Risk - Shuffling Gait",
+                    "key_anomaly": "Extreme GVI (22.5), high step time variability (18.3), prolonged double support (0.26s)",
+                    "comparison_note": "Критически высокая вариабельность походки. Увеличенная фаза двойной опоры указывает на нарушение равновесия."
+                }
+            },
+            
+            # Reference 4: Limb Length Discrepancy
+            {
+                "reference_id": "REF_ASYM_056",
+                "clinical_category": "Asymmetry",
+                "description": "Мужчина 42 года. Анатомическая асимметрия длины ног (левая короче на 2.5 см).",
+                "user_profile": {
+                    "age": 42, "gender": "MALE", "weight": 85.0, "height": 178.0,
+                    "leg_length": 88.0, "dominant_leg": "RIGHT", "placed_leg": "LEFT",
+                    "injury_info": {"have_injury": False, "pain_level": 2, "is_active": True}
+                },
+                "session_metrics": {
+                    "rhythm_pace": {
+                        "step_count": 140, "cadence": 108.0, "avg_speed": 1.15,
+                        "avg_peak_angular_velocity": 340.0
+                    },
+                    "joint_mechanics": {
+                        "knee_angle": {
+                            "mean": 58.0, "std": 10.2, "max": 76.0, "min": 38.0, "amplitude": 38.0
+                        },
+                        "orientation": {"avg_roll": -5.8, "avg_pitch": -3.2, "avg_yaw": 4.2}
+                    },
+                    "variability": {
+                        "gvi": 6.8, "step_time_variability": 5.5, "knee_angle_variability": 8.2
+                    },
+                    "symmetry_phases": {
+                        "avg_stance_time": 0.66, "avg_swing_time": 0.34, "stance_swing_ratio": 1.94,
+                        "double_support_time": 0.17, "avg_impact_force": 9.2
+                    }
+                },
+                "clinical_verdict": {
+                    "status": "Compensated Limb Length Discrepancy",
+                    "key_anomaly": "Abnormal roll (-5.8°) and yaw (4.2°), elevated GVI (6.8)",
+                    "comparison_note": "Выраженная асимметрия в ориентации датчика указывает на компенсаторный наклон таза."
+                }
+            },
+            
+            # Reference 5: Technical Noise (Wrong Sensor Placement)
+            {
+                "reference_id": "REF_NOISE_200",
+                "clinical_category": "Tech Noise",
+                "description": "Женщина 33 года. Здорова. Датчик ошибочно закреплен на щиколотке (ankle) вместо бедра. Избыточные центробежные силы.",
+                "user_profile": {
+                    "age": 33, "gender": "FEMALE", "weight": 60.0, "height": 170.0,
+                    "leg_length": 85.0, "dominant_leg": "RIGHT", "placed_leg": "RIGHT",
+                    "injury_info": {"have_injury": False, "pain_level": 0, "is_active": True}
+                },
+                "session_metrics": {
+                    "rhythm_pace": {
+                        "step_count": 200, "cadence": 106.0, "avg_speed": 1.15,
+                        "avg_peak_angular_velocity": 850.0
+                    },
+                    "joint_mechanics": {
+                        "knee_angle": {
+                            "mean": 45.0, "std": 35.5, "max": 115.0, "min": -15.0, "amplitude": 130.0
+                        },
+                        "orientation": {"avg_roll": 2.5, "avg_pitch": -12.4, "avg_yaw": 1.8}
+                    },
+                    "variability": {
+                        "gvi": 35.2, "step_time_variability": 12.8, "knee_angle_variability": 22.4
+                    },
+                    "symmetry_phases": {
+                        "avg_stance_time": 0.62, "avg_swing_time": 0.38, "stance_swing_ratio": 1.63,
+                        "double_support_time": 0.12, "avg_impact_force": 42.5
+                    }
+                },
+                "clinical_verdict": {
+                    "status": "Technical Invalid (Wrong Segment)",
+                    "key_anomaly": "Extreme angular velocity (850) and impact force (42.5)",
+                    "comparison_note": "Угловая скорость 850 град/сек и сила удара 42.5 характерны для прыжков или бега, но не для ходьбы со скоростью 1.15 м/с. Амплитуда 130° указывает на то, что датчик находится на сегменте с наибольшим радиусом вращения (голень/стопа). Позиционирование неверно."
+                }
+            }
+        ]
