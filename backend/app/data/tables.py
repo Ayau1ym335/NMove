@@ -320,43 +320,50 @@ class StepMetrics(Base):
     session = relationship("WalkingSessions", back_populates="step_metrics")
     device = relationship("Devices")
 
-class UserProgress(Base):
-    __tablename__ = "user_progress"
+class Report(Base):
+    __tablename__ = "reports"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    activity_type = Column(JSON, nullable=True) 
+    notes = Column(Text, nullable=True)
+    
+    rhythm_pace = Column(JSON, nullable=True)
+    joint_mechanics = Column(JSON, nullable=True)
+    variability = Column(JSON, nullable=True)
+    symmetry_phases = Column(JSON, nullable=True)
+    
+    protocol_reference = Column(Text, nullable=True)
+    personalized_target = Column(JSON, nullable=True)
+    analysis_matrix = Column(JSON, nullable=True) 
+    clinical_narrative = Column(Text, nullable=True)
+    status = Column(String, nullable=True) 
+    recommendations = Column(Text, nullable=True)
+    
+    overall_score = Column(Float, nullable=True) 
+    gvi_score = Column(Float, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    user = relationship("User", back_populates="reports")
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # Time Period
-    period_type = Column(String(20), nullable=False, comment="week/month")
-    period_start = Column(DateTime, nullable=False, index=True)
-    period_end = Column(DateTime, nullable=False)
-
-    # Aggregated Stats
-    total_sessions = Column(Integer)
-    total_steps = Column(Integer)
-
-    # Average Metrics
-    avg_cadence = Column(Float)
-    avg_gvi = Column(Float)
-    avg_knee_angle = Column(Float)
-    avg_hip_angle = Column(Float)
-    avg_speed = Column(Float)
-
-    # Comparison with Baseline
-    cadence_vs_baseline = Column(Float, comment="% изменения от baseline")
-    gvi_vs_baseline = Column(Float)
-    knee_amplitude_vs_baseline = Column(Float)
-
-    # Trend Analysis
-    trend = Column(String(20), comment="improving/stable/declining")
-    improvement_score = Column(Float, comment="0-100 общий балл улучшения")
-
-    # Relationship
-    user = relationship("Users", back_populates="progress_records")
-
-    __table_args__ = (
-        CheckConstraint("period_type IN ('week', 'month')", name="check_period_type"),
-    )
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    report_id = Column(Integer, ForeignKey("reports.id"), nullable=True)
+    
+    session_name = Column(String, nullable=True)
+    chat_history = Column(JSON, nullable=True) 
+    is_active = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User", back_populates="chat_sessions")
 
 class Exercises(Base):
         __tablename__ = "exercises"

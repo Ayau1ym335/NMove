@@ -9,54 +9,22 @@ class UserBase(BaseModel):
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str = Field(
-        ...,
-        min_length=8,
-        max_length=20,
-        description="Пароль пользователя (минимум 8 символов)"
-    )
-
+    password: str = Field(..., min_length=8, max_length=20)
     model_config = ConfigDict(from_attributes=True)
 
 class UserRegister(UserBase):
     name: str
     email: EmailStr
-    password: str = Field(
-        ...,
-        min_length=8,
-        max_length=100,
-    )
+    password: str = Field(..., min_length=8, max_length=100)
     city: str
     date_of_birth: datetime 
     gender: GenderEnum 
-    weight: float = Field(
-        ..., 
-        ge=20, le=200, 
-        description="Вес в кг"
-    )
-    height: float = Field(
-        ..., 
-        ge=80, le=210, 
-        description="Рост в см"
-    )
-    have_injury: bool = Field(
-        default=False, 
-        description="Наличие травм"
-    )
-    shoe_size: float = Field(
-        ..., 
-        ge=10, le=50, 
-        description="Размер обуви (RU)"
-    )
-    leg_length: float = Field(
-        ...,
-        ge=10, le=150,
-        description="Длина ноги (см)"
-    )
-    dominant_leg: SideEnum = Field(
-        default=SideEnum.RIGHT, 
-        description="Ведущая нога"
-    )
+    weight: float = Field(..., ge=20, le=200)
+    height: float = Field(..., ge=80, le=210)
+    have_injury: bool = Field(default=False)
+    shoe_size: float = Field(..., ge=10, le=50)
+    leg_length: float = Field(..., ge=10, le=150)
+    dominant_leg: SideEnum = Field(default=SideEnum.RIGHT)
     doctors: Optional[List[int]] = Field(description='Имя врача который наблюдает за вами(their public id)')
     @field_validator('email')
     def email_must_be_lowercase(cls, v):
@@ -197,3 +165,128 @@ class UploadResponse(BaseModel):
     samples_count: int 
     duration: float
     message: str = Field(default="Data uploaded successfully. Processing started in background.")
+
+class InjuryInfo(BaseModel):
+    have_injury: bool = False
+    body_part: List[str] = []
+    side: Optional[str] = None
+    injury_type: List[str] = []
+    diagnosis_date: Optional[datetime] = None
+    pain_level: int = Field(0, ge=0, le=10)
+    is_active: bool = True
+
+class UserBase(BaseModel):
+    email: EmailStr
+    full_name: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    shoe_size: Optional[float] = None
+    leg_length: Optional[float] = None
+    dominant_leg: Optional[str] = None
+    placed_leg: Optional[str] = None
+    injury_info: Optional[InjuryInfo] = None
+
+class UserResponse(UserBase):
+    id: int
+    created_at: datetime
+    is_active: bool
+    
+    class Config:
+        from_attributes = True
+
+class RhythmPace(BaseModel):
+    step_count: int
+    cadence: float
+    avg_speed: float
+    avg_peak_angular_velocity: float
+
+class AngleMetrics(BaseModel):
+    mean: float
+    std: float
+    max: float
+    min: float
+    amplitude: float
+
+class Orientation(BaseModel):
+    avg_roll: float
+    avg_pitch: float
+    avg_yaw: float
+
+class JointMechanics(BaseModel):
+    knee_angle: AngleMetrics
+    hip_angle: AngleMetrics
+    orientation: Orientation
+
+class Variability(BaseModel):
+    gvi: float
+    step_time_variability: float
+    knee_angle_variability: float
+    stance_time_variability: float
+    swing_time_variability: float
+    stride_length_variability: float
+
+class SymmetryPhases(BaseModel):
+    avg_stance_time: float
+    avg_swing_time: float
+    stance_swing_ratio: float
+    double_support_time: float
+    avg_impact_force: float
+
+class SessionMetrics(BaseModel):
+    activity_type: List[str]
+    notes: Optional[str] = None
+    rhythm_pace: RhythmPace
+    joint_mechanics: JointMechanics
+    variability: Variability
+    symmetry_phases: SymmetryPhases
+
+class ReportCreate(BaseModel):
+    user_id: int
+    session_metrics: SessionMetrics
+
+class ReportResponse(BaseModel):
+    id: int
+    user_id: int
+    activity_type: Optional[List[str]]
+    notes: Optional[str]
+    
+    protocol_reference: Optional[str]
+    personalized_target: Optional[Dict[str, Any]]
+    clinical_narrative: Optional[str]
+    status: Optional[str]
+    recommendations: Optional[str]
+    overall_score: Optional[float]
+    gvi_score: Optional[float]
+    
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+class ChatRequest(BaseModel):
+    user_id: int
+    report_id: Optional[int] = None
+    message: str
+
+class ChatResponse(BaseModel):
+    session_id: int
+    response: str
+    timestamp: datetime
+
+class ChatSessionResponse(BaseModel):
+    id: int
+    user_id: int
+    report_id: Optional[int]
+    session_name: Optional[str]
+    created_at: datetime
+    is_active: bool
+    
+    class Config:
+        from_attributes = True
