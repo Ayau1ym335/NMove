@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     
     SECRET_KEY: str = "51839332ecca178ca04e0867313ef88da42072eb56414c1934c851d4757983d7"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 21600
+
     
     BOOKS_FOLDER: str = "books"
     DB_REF_FOLDER: str = "db_ref"
@@ -33,3 +34,4 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+

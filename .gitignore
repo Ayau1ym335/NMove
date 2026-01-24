@@ -48,3 +48,4 @@ test_*.py
 !Pipfile
 !pyproject.toml
 !pubspec.yaml
+config.py
